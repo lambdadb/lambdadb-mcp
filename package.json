@@ -1,0 +1,29 @@
+{
+  "name": "lambdadb-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server for LambdaDB data plane",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run typecheck",
+    "dev": "tsx watch src/index.ts",
+    "inspect": "bash ./scripts/inspect.sh",
+    "start": "node dist/index.js",
+    "start:env": "node --env-file=.env dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@functional-systems/lambdadb": "0.3.2",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3"
+  }
+}
