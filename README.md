@@ -95,6 +95,28 @@ They cover read-only defaults, write opt-in, List/Get response validation, creat
 HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
 arrays/errors. They do not require credentials or create remote collections.
 
+For an explicitly enabled live smoke, configure `.env.local` with the same required
+variables and `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`, then run:
+
+```bash
+npm run test:live
+```
+
+The live test creates one uniquely named temporary collection, checks real HTTP
+201/202 responses, metadata, pagination, filters, sorting, and Branch/Tag/Alias
+reads. It writes two 3 MiB documents to force actual `docsUrl` array downloads
+through the MCP tools and checks full payload integrity and download credential
+isolation. It allows up to five minutes for committed visibility, deletes its
+temporary collection in cleanup, and verifies that the collection is absent.
+Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
+operations are not exposed as MCP tools. This test is separate from `npm run check`.
+
+If the environment file is outside the worktree, run after building:
+
+```bash
+node --env-file=/absolute/path/to/.env.local --test test/integration/live.test.mjs
+```
+
 ## Run
 
 If you use `nix-direnv`, this repo can provision Node automatically:
