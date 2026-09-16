@@ -170,7 +170,9 @@ npm run inspect
 
 `start:env`, `inspect`, and `test:live` use the same file selection:
 `LAMBDADB_ENV_FILE` when set, otherwise `.env.local` if present, otherwise `.env`.
-Only the selected file is loaded; exported environment variables take precedence.
+Only the selected file is loaded. For `start:env` and `test:live`, exported environment
+variables take precedence. Inspector forwards `LAMBDADB_ENV_FILE` and
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS`; its connection credentials come from the selected file.
 Relative `LAMBDADB_ENV_FILE` paths are resolved from the repository root.
 The Inspector launches `dist/index.js` through this loader and opens its web UI.
 Credentials are read by Node rather than passed as Inspector command-line arguments.

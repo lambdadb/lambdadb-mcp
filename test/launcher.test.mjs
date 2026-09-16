@@ -46,3 +46,27 @@ test("launcher fails for a missing selected file instead of silently using anoth
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Missing environment file: missing.env/);
 });
+
+test("Inspector forwards the file and read-only overrides without putting credentials in arguments", async (t) => {
+  const f = await fixture(t);
+  const script = join(f.root, "scripts", "inspect.sh");
+  await copyFile(new URL("../scripts/inspect.sh", import.meta.url), script);
+  await mkdir(join(f.root, "bin"));
+  await writeFile(join(f.root, "bin", "npx"),
+    `#!/usr/bin/env bash
+exec node -e 'console.log(JSON.stringify(process.argv.slice(1)))' "$@"
+`, { mode: 0o755 });
+  const result = spawnSync("bash", [script, "--cli", "--method", "tools/list"], {
+    cwd: tmpdir(), encoding: "utf8", env: {
+      PATH: `${join(f.root, "bin")}:${process.env.PATH}`,
+      LAMBDADB_ENV_FILE: "custom.env", LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "false",
+      LAMBDADB_PROJECT_API_KEY: "test-only-secret"
+    }
+  });
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    "@modelcontextprotocol/inspector", "--cli", "bash", "./scripts/with-env.sh", "dist/index.js",
+    "-e", "LAMBDADB_ENV_FILE=custom.env", "-e", "LAMBDADB_MCP_ENABLE_WRITE_TOOLS=false",
+    "--method", "tools/list"
+  ]);
+});
