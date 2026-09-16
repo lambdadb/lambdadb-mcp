@@ -11,7 +11,7 @@ import { createServer } from "../dist/server/createServer.js";
 const timestamp = 1789600000123;
 const collection = {
   projectName: "test", collectionName: "items",
-  indexConfigs: { title: { type: "text" }, metadata: { type: "object", objectIndexConfigs: { category: { type: "keyword" } } } },
+  indexConfigs: { title: { type: "text" }, category: { type: "keyword" }, metadata: { type: "object", objectIndexConfigs: { category: { type: "keyword" } } } },
   description: "Contract fixture", tags: { env: "test" },
   numPartitions: 1, numDocs: 0, defaultBranchName: "main",
   snapshotRetentionInDays: 30, createdAt: timestamp, updatedAt: timestamp
@@ -19,8 +19,8 @@ const collection = {
 const created = Object.fromEntries([
   "collectionName", "description", "tags", "defaultBranchName", "snapshotRetentionInDays", "createdAt"
 ].map((key) => [key, collection[key]]));
-const docs = [{ collection: "items", doc: { _id: "one", title: "Test" }, score: 1 }];
-const query = { query: { matchAll: {} } };
+const docs = [{ collection: "items", doc: { id: "one", title: "Test" }, score: 1 }];
+const query = { query: { queryString: { query: "*:*" } } };
 
 async function harness(t, { write = false, respond } = {}) {
   const requests = [];
@@ -112,7 +112,7 @@ test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
   assert.deepEqual(h.requests[0].body, input);
 });
 
-for (const [name, args] of [["query_collection", { ...query, sort: [{ title: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {
+for (const [name, args] of [["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {
   test(`${name} forwards refs and permits consistent reads only on direct branches`, async (t) => {
     const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
     for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
@@ -131,13 +131,36 @@ for (const [name, args] of [["query_collection", { ...query, sort: [{ title: "AS
   });
 }
 
+test("published sort schema and tool calls agree on case-insensitive directions", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
+  const tools = (await h.client.listTools()).tools;
+  const schema = tools.find((tool) => tool.name === "lambdadb_query_collection").inputSchema;
+  const pattern = new RegExp(schema.properties.sort.items.additionalProperties.pattern);
+  for (const direction of ["asc", "ASC", "aSc", "desc", "DESC", "dEsC"]) {
+    assert.equal(pattern.test(direction), true, `Published schema must accept ${direction}`);
+    data(await h.call("query_collection", {
+      collectionName: "items", ...query, sort: [{ category: direction }]
+    }));
+    assert.deepEqual(h.requests.at(-1).body.sort, [{ category: direction }]);
+  }
+  const acceptedRequests = h.requests.length;
+  for (const direction of ["", "ascending", "asc desc", " ASC"]) {
+    assert.equal(pattern.test(direction), false);
+    const result = await h.call("query_collection", {
+      collectionName: "items", ...query, sort: [{ category: direction }]
+    });
+    assert.equal(result.isError, true);
+  }
+  assert.equal(h.requests.length, acceptedRequests);
+});
+
 test("list uses GET for simple pagination and POST for ref/filter/projection", async (t) => {
   const h = await harness(t, { respond: () => ({ body: { docs, total: 1, isDocsInline: true, nextPageToken: "next" } }) });
   data(await h.call("list_docs", { collectionName: "items", size: 1, pageToken: "previous", includeVectors: true }));
   assert.equal(h.requests[0].method, "GET");
   assert.equal(h.requests[0].url.searchParams.get("pageToken"), "previous");
   const options = { size: 1, pageToken: "next", ref: { kind: "tag", name: "release" },
-    filter: { term: { category: "test" } }, fields: { include: ["title"] },
+    filter: { queryString: { query: "category:test" } }, fields: { include: ["title"] },
     includeVectors: false, partitionFilter: { field: "tenant", in: ["test"] } };
   data(await h.call("list_docs", { collectionName: "items", ...options }));
   assert.equal(h.requests[1].method, "POST");
@@ -148,9 +171,9 @@ test("list uses GET for simple pagination and POST for ref/filter/projection", a
 test("upsert and both delete forms preserve branch scope", async (t) => {
   const h = await harness(t, { write: true, respond: () => ({ status: 202, body: { message: "Success" } }) });
   const inputs = [
-    ["upsert_docs", { docs: [{ _id: "one", title: "Test" }], branch: "dev" }],
+    ["upsert_docs", { docs: [{ id: "one", title: "Test" }], branch: "dev" }],
     ["delete_docs", { ids: ["one"], branch: "dev", partitionFilter: { field: "tenant", in: ["test"] } }],
-    ["delete_docs", { filter: { matchAll: {} }, branch: "dev" }]
+    ["delete_docs", { filter: { queryString: { query: "id:one" } }, branch: "dev" }]
   ];
   for (const [name, input] of inputs) {
     data(await h.call(name, { collectionName: "items", ...input }));
@@ -169,10 +192,10 @@ test("invalid and unsupported inputs fail before any HTTP request", async (t) =>
     ["create_collection", { indexConfigs: collection.indexConfigs, tags: { invalid: "a:b" } }],
     ["create_collection", { indexConfigs: collection.indexConfigs, tags: { invalid: " " } }],
     ["delete_docs", {}], ["delete_docs", { ids: [] }],
-    ["delete_docs", { ids: ["one"], filter: { matchAll: {} } }],
+    ["delete_docs", { ids: ["one"], filter: { queryString: { query: "id:one" } } }],
     ["upsert_docs", { docs: [], branch: "dev" }],
-    ["upsert_docs", { docs: [{ _id: "one" }], branch: "x" }],
-    ["upsert_docs", { docs: [{ _id: "one" }], ref: { kind: "tag", name: "release" } }],
+    ["upsert_docs", { docs: [{ id: "one" }], branch: "x" }],
+    ["upsert_docs", { docs: [{ id: "one" }], ref: { kind: "tag", name: "release" } }],
     ["list_docs", { consistentRead: true }],
     ["list_docs", { ref: { kind: "branch", name: "dev", asOf: 1 } }],
     ["fetch_docs", { ids: ["one"], fields: {} }],

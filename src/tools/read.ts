@@ -86,7 +86,10 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
           "true requires a direct branch ref or omitted ref (main)."
         ),
         includeVectors: z.boolean().optional(),
-        sort: z.array(z.record(z.string(), z.string().regex(/^(asc|desc)$/i))).optional(),
+        // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
+        sort: z.array(z.record(
+          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/)
+        )).optional(),
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
       })
