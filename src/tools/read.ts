@@ -8,7 +8,14 @@ import { z } from "zod";
 import type { EnvConfig } from "../config/env.js";
 import { createLambdaDBClient } from "../lambdadb/client.js";
 import { formatLambdaDBError } from "../lambdadb/errors.js";
-import { jsonResult } from "./shared.js";
+import {
+  fieldsSchema,
+  jsonResult,
+  nameSchema,
+  partitionFilterSchema,
+  readOptions,
+  readRefSchema
+} from "./shared.js";
 
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
@@ -20,10 +27,10 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         readOnlyHint: true,
         openWorldHint: false
       },
-      inputSchema: {
+      inputSchema: z.strictObject({
         size: z.number().int().min(1).max(100).optional(),
         pageToken: z.string().optional()
-      }
+      })
     },
     async ({ size, pageToken }) => {
       try {
@@ -45,9 +52,9 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         readOnlyHint: true,
         openWorldHint: false
       },
-      inputSchema: {
-        collectionName: z.string().min(1)
-      }
+      inputSchema: z.strictObject({
+        collectionName: nameSchema
+      })
     },
     async ({ collectionName }) => {
       try {
@@ -70,21 +77,28 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         readOnlyHint: true,
         openWorldHint: false
       },
-      inputSchema: {
-        collectionName: z.string().min(1),
+      inputSchema: z.strictObject({
+        collectionName: nameSchema,
         size: z.number().int().min(1).max(100).optional(),
         query: z.record(z.string(), z.any()),
-        consistentRead: z.boolean().optional(),
+        ref: readRefSchema.optional(),
+        consistentRead: z.boolean().optional().describe(
+          "true requires a direct branch ref or omitted ref (main)."
+        ),
         includeVectors: z.boolean().optional(),
-        sort: z.array(z.record(z.string(), z.any())).optional(),
-        fields: z.any().optional(),
-        partitionFilter: z.any().optional()
-      }
+        // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
+        sort: z.array(z.record(
+          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/)
+        )).optional(),
+        fields: fieldsSchema.optional(),
+        partitionFilter: partitionFilterSchema.optional()
+      })
     },
     async ({
       collectionName,
       size,
       query,
+      ref,
       consistentRead,
       includeVectors,
       sort,
@@ -96,7 +110,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         const input: QueryCollectionInput = {
           query,
           size,
-          consistentRead,
+          ...readOptions(ref, consistentRead),
           includeVectors,
           sort,
           fields,
@@ -119,18 +133,30 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         readOnlyHint: true,
         openWorldHint: false
       },
-      inputSchema: {
-        collectionName: z.string().min(1),
+      inputSchema: z.strictObject({
+        collectionName: nameSchema,
         size: z.number().int().min(1).max(100).optional(),
-        pageToken: z.string().optional()
-      }
+        pageToken: z.string().optional(),
+        ref: readRefSchema.optional(),
+        filter: z.record(z.string(), z.any()).optional(),
+        fields: fieldsSchema.optional(),
+        includeVectors: z.boolean().optional(),
+        partitionFilter: partitionFilterSchema.optional()
+      })
     },
-    async ({ collectionName, size, pageToken }) => {
+    async ({
+      collectionName, size, pageToken, ref, filter, fields, includeVectors, partitionFilter
+    }) => {
       try {
         const client = createLambdaDBClient(config);
         const result = await client.collection(collectionName).docs.list({
           size,
-          pageToken
+          pageToken,
+          ref,
+          filter,
+          fields,
+          includeVectors,
+          partitionFilter
         });
         return jsonResult("Documents listed successfully.", result);
       } catch (error) {
@@ -148,18 +174,22 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         readOnlyHint: true,
         openWorldHint: false
       },
-      inputSchema: {
-        collectionName: z.string().min(1),
-        ids: z.array(z.string()).min(1).max(100),
-        consistentRead: z.boolean().optional(),
+      inputSchema: z.strictObject({
+        collectionName: nameSchema,
+        ids: z.array(z.string().min(1)).min(1).max(100),
+        ref: readRefSchema.optional(),
+        consistentRead: z.boolean().optional().describe(
+          "true requires a direct branch ref or omitted ref (main)."
+        ),
         includeVectors: z.boolean().optional(),
-        fields: z.any().optional(),
-        partitionFilter: z.any().optional()
-      }
+        fields: fieldsSchema.optional(),
+        partitionFilter: partitionFilterSchema.optional()
+      })
     },
     async ({
       collectionName,
       ids,
+      ref,
       consistentRead,
       includeVectors,
       fields,
@@ -169,7 +199,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         const client = createLambdaDBClient(config);
         const input: FetchDocsInput = {
           ids,
-          consistentRead,
+          ...readOptions(ref, consistentRead),
           includeVectors,
           fields,
           partitionFilter
