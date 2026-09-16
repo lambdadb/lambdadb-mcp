@@ -95,7 +95,8 @@ They cover read-only defaults, write opt-in, List/Get response validation, creat
 HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
 arrays/errors and local environment-file loading. They do not require credentials
 or create remote collections. GitHub Actions runs `npm ci` and `npm run check` on
-Node 20, 22, and 24 for pull requests and pushes to `develop`/`main`. Live tests
+Node 20.7.0 (the minimum supported version) and the latest 20.x, 22.x, and 24.x
+for pull requests and pushes to `develop`/`main`. Live tests
 remain explicitly invoked and are not part of CI.
 
 For an explicitly enabled live smoke, configure `.env.local` with the same required
@@ -121,6 +122,11 @@ LAMBDADB_ENV_FILE=/absolute/path/to/.env.local npm run test:live
 ```
 
 ## Run
+
+Node 20.7.0 or later is required. Local launchers use `--env-file` and rely on
+exported environment variables taking precedence over values in the file.
+Node 20.6.0 can overwrite an explicit read-only override with the file's value;
+this behavior was fixed in [Node 20.7.0](https://nodejs.org/en/blog/release/v20.7.0).
 
 If you use `nix-direnv`, this repo can provision Node automatically:
 
