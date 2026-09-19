@@ -9,6 +9,43 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 - Defaults to read-only tools
 - Optionally exposes write tools via an environment flag
 
+## Install and run with npm
+
+Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
+Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
+
+Publication is being prepared. The following commands become available after the
+maintainer completes [first publication and trust setup](RELEASING.md). Before
+there is a stable release, select `@dev` or an exact published prerelease:
+
+```sh
+npx --yes @functional-systems/lambdadb-mcp@dev
+# After a stable release exists:
+npm install -g @functional-systems/lambdadb-mcp
+lambdadb-mcp
+# Or run without a global installation:
+npx --yes @functional-systems/lambdadb-mcp
+```
+
+Set the environment variables below in your MCP client or securely in the parent
+process. Installed execution reads the environment directly and needs no checkout,
+build, shell script, or `.env.local`. It does not automatically load dotenv files.
+`LAMBDADB_ENV_FILE` belongs to the repository's development launchers only. If you
+prefer a file after global installation, use Node's explicit file loader:
+
+```sh
+node --env-file=/absolute/path/to/mcp.env "$(npm root -g)/@functional-systems/lambdadb-mcp/dist/index.js"
+```
+
+Exported environment values take precedence. Keep credentials out of command
+arguments, source control and logs. Pin an exact published version in MCP client
+configurations for reproducibility. `@dev`, `@rc` and unqualified (`latest`) resolve
+different release channels; installed copies do not update themselves.
+
+The server uses stdio: stdout contains only MCP JSON-RPC messages, diagnostics go
+to stderr, and stdin closure/SIGINT/SIGTERM ends the process. Running it without an
+MCP client waits for protocol input. See the [MCP transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+
 ## Project Structure
 
 ```text
@@ -87,6 +124,7 @@ patch is needed for this issue.
 ```bash
 npm ci
 npm run check
+npm run test:package
 ```
 
 `check` runs type checking, a build, and the contract tests. Tests connect an MCP
@@ -94,16 +132,19 @@ client to this server and exercise the installed SDK against a local HTTP fixtur
 They cover read-only defaults, write opt-in, List/Get response validation, creation
 HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
 arrays/errors and local environment-file loading. They do not require credentials
-or create remote collections. GitHub Actions runs `npm ci` and `npm run check` on
-Node 20.7.0 (the minimum supported version) and the latest 20.x, 22.x, and 24.x
-for pull requests and pushes to `develop`/`main`. Live tests
-remain explicitly invoked and are not part of CI.
+or create remote collections. `test:package` additionally installs the actual
+tarball in a clean consumer directory and repeats the tool contracts over real
+stdio, checking version identity, config errors, stdout and process termination.
+CI validates Node 22.14.0, current 22.x and 24.x on PRs and pushes to develop/main.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md) for checks,
+release policy and the initially disabled automatic publication gate.
 
-For an explicitly enabled live smoke, configure `.env.local` with the same required
-variables and `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`, then run:
+For a live smoke, explicitly designate a disposable **development** project and
+configure its credentials in `.env.local` with `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`.
+An existing credential file alone is not permission to test. Then run:
 
 ```bash
-npm run test:live
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live
 ```
 
 The live test creates one uniquely named temporary collection, checks real HTTP
@@ -118,15 +159,13 @@ operations are not exposed as MCP tools. This test is separate from `npm run che
 If the environment file is outside the worktree:
 
 ```bash
-LAMBDADB_ENV_FILE=/absolute/path/to/.env.local npm run test:live
+LAMBDADB_ENV_FILE=/absolute/path/to/.env.local LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live
 ```
 
-## Run
+## Run from source (development)
 
-Node 20.7.0 or later is required. Local launchers use `--env-file` and rely on
-exported environment variables taking precedence over values in the file.
-Node 20.6.0 can overwrite an explicit read-only override with the file's value;
-this behavior was fixed in [Node 20.7.0](https://nodejs.org/en/blog/release/v20.7.0).
+Use Node.js >=22.14.0. The repository's optional launchers preserve exported
+environment overrides when loading dotenv files with Node's `--env-file`.
 
 If you use `nix-direnv`, this repo can provision Node automatically:
 
@@ -156,9 +195,9 @@ cp .env.example .env.local
 For local stdio execution:
 
 ```bash
-LAMBDADB_BASE_URL=...
-LAMBDADB_PROJECT_NAME=...
-LAMBDADB_PROJECT_API_KEY=...
+export LAMBDADB_BASE_URL=...
+export LAMBDADB_PROJECT_NAME=...
+export LAMBDADB_PROJECT_API_KEY=...
 npm run start
 ```
 
@@ -191,22 +230,24 @@ LAMBDADB_MCP_ENABLE_WRITE_TOOLS=false npm run inspect
 
 ## Codex Example
 
-After building, add a stdio MCP entry to the Codex configuration, following the
-[official MCP configuration guide](https://developers.openai.com/codex/mcp/):
+After the first dev publication, configure the stdio executable:
 
 ```toml
 [mcp_servers.lambdadb]
-command = "bash"
-args = ["/absolute/path/to/lambdadb-mcp/scripts/with-env.sh", "dist/index.js"]
+command = "npx"
+args = ["--yes", "@functional-systems/lambdadb-mcp@dev"]
 
 [mcp_servers.lambdadb.env]
+LAMBDADB_BASE_URL = "https://aws-ap-northeast-2.lambdadb.ai"
+LAMBDADB_PROJECT_NAME = "my-project"
+LAMBDADB_PROJECT_API_KEY = "replace-me"
 LAMBDADB_MCP_ENABLE_WRITE_TOOLS = "false"
 ```
 
-The launcher reads the repository's `.env.local` (or `.env` fallback), so credentials
-stay in the environment file. Set `LAMBDADB_ENV_FILE` in the same `env` table if
-using a file outside the checkout. Start a new Codex session and ask it to list
-collections, inspect a collection, or search with a small result size.
+Use a secure local configuration or the client's environment forwarding facility
+for credentials. Replace `@dev` with an exact published version when pinning.
+The existing source-checkout launcher remains available as
+`bash /absolute/path/to/lambdadb-mcp/scripts/with-env.sh dist/index.js`.
 
 ## Claude Desktop Example
 
@@ -214,8 +255,8 @@ collections, inspect a collection, or search with a small result size.
 {
   "mcpServers": {
     "lambdadb": {
-      "command": "node",
-      "args": ["/absolute/path/to/lambdadb-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["--yes", "@functional-systems/lambdadb-mcp@dev"],
       "env": {
         "LAMBDADB_BASE_URL": "https://aws-ap-northeast-2.lambdadb.ai",
         "LAMBDADB_PROJECT_NAME": "my-project",
@@ -242,3 +283,7 @@ Recommended split:
 - `docs`: user-facing setup, examples, supported tools, troubleshooting
 
 That keeps operational details close to code while avoiding product docs drift.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
