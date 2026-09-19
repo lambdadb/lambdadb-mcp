@@ -2,13 +2,28 @@
 
 ## Status and policy
 
-This change prepares npm distribution; it does not publish a package, tag a
-release or enable automatic publication. On 2026-09-19, the public registry
-returned E404 for `@functional-systems/lambdadb-mcp`; GitHub had no tags or
-Releases. The current npm account returned E401 for both `npm whoami` and
-`npm org ls functional-systems`, so organization publication rights remain
-unconfirmed. GitHub repository administration is not npm organization membership.
-Check these again before bootstrap; a public E404 is not a name reservation.
+As verified on **2026-09-20 (KST)**:
+
+- Public package: [`@functional-systems/lambdadb-mcp`](https://www.npmjs.com/package/@functional-systems/lambdadb-mcp).
+- Manual bootstrap `0.1.0-dev.1` is complete. Organization publication rights were
+  confirmed during bootstrap; do not repeat first publication.
+- Package-specific Trusted Publishing is working: GitHub Actions published
+  `0.1.0-dev.4` with OIDC and provenance in
+  [run 35434355648, attempt 2](https://github.com/lambdadb/lambdadb-mcp/actions/runs/35434355648/attempts/2).
+- Automatic dev publication is enabled (`NPM_DEV_PUBLISH_ENABLED=true`). Eligible
+  develop pushes publish after validation; a documentation-only merge can also
+  produce a new dev version.
+- `dev=0.1.0-dev.4`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
+  There is no rc/stable release or GitHub Release yet. Prefer `@dev` or an exact
+  published version until stable is available.
+- main still needs the publishing workflow and reviewed release metadata before
+  rc/stable publication. See [explicit rc/stable publication](#explicit-rcstable-publication).
+- See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
+  provenance, and live-service evidence and their separate scopes.
+
+These are dated observations, not fixed channel values. Recheck the registry and
+repository variable before the next release. The bootstrap and trust sections
+below describe setup and recovery; they are not outstanding setup tasks.
 
 | Source | Version | Trigger | npm dist-tag |
 | --- | --- | --- | --- |
@@ -55,7 +70,10 @@ Live tests are optional for PR validation, but release owners must explicitly
 record performed or not performed. They require a designated development project,
 not merely the presence of an existing `.env.local` or credential. See README
 for `LAMBDADB_RUN_LIVE_TESTS=1` and project confirmation. Do not load production
-credentials into package/CI tests. This implementation task did not run live tests.
+credentials into package/CI tests. Authorized development-project live tests have
+passed; the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) identifies the
+tested source and installed package. These results do not automatically validate
+a future release candidate.
 
 ## First package publication: separate manual bootstrap
 
@@ -112,8 +130,9 @@ It has no npm token secret. See [npm Trusted Publishing](https://docs.npmjs.com/
 Leave repository variable `NPM_DEV_PUBLISH_ENABLED` unset or false through
 bootstrap and trust setup. Only after authorizing ongoing develop publication,
 set it to `true` in GitHub **Settings → Secrets and variables → Actions → Variables**.
-This implementation leaves it unset. The next eligible develop push, or a rerun
-of its existing push workflow, can then publish. `workflow_dispatch`, PRs and main
+This repository completed that activation; the variable was verified as `true` on
+2026-09-20 (KST). The next eligible develop push, or a rerun of its existing push
+workflow, can publish. `workflow_dispatch`, PRs and main
 pushes validate only. Disable the variable to stop future automatic publication;
 do not cancel an in-progress registry write as rollback.
 
