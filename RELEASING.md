@@ -13,11 +13,13 @@ As verified on **2026-09-20 (KST)**:
 - Automatic dev publication is enabled (`NPM_DEV_PUBLISH_ENABLED=true`). Eligible
   develop pushes publish after validation; a documentation-only merge can also
   produce a new dev version.
-- `dev=0.1.0-dev.4`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
-  There is no rc/stable release or GitHub Release yet. Prefer `@dev` or an exact
-  published version until stable is available.
-- main still needs the publishing workflow and reviewed release metadata before
-  rc/stable publication. See [explicit rc/stable publication](#explicit-rcstable-publication).
+- First stable release: [`v0.1.0`](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.0).
+  The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/35494365745)
+  published `0.1.0` with OIDC and provenance; `latest=0.1.0`, `dev=0.1.0-dev.5`.
+- main contains the stable release and publishing workflow. develop resumes with
+  the `0.1.1-dev.1` base; CI generates its dev counter from first-parent history.
+  Eligible develop pushes can publish the next dev version while leaving
+  `latest` on `0.1.0`.
 - See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
   provenance, and live-service evidence and their separate scopes.
 
