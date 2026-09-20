@@ -14,9 +14,11 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-Publication is being prepared. The following commands become available after the
-maintainer completes [first publication and trust setup](RELEASING.md). Before
-there is a stable release, select `@dev` or an exact published prerelease:
+The package is published on the `dev` channel. Until a stable release exists,
+select `@dev` or an exact published prerelease. As verified on 2026-09-20 (KST),
+`dev` resolves to `0.1.0-dev.4`; `latest` still points to the bootstrap prerelease
+`0.1.0-dev.1` and does not indicate a stable release. See
+[release status and policy](RELEASING.md).
 
 ```sh
 npx --yes @functional-systems/lambdadb-mcp@dev
@@ -137,7 +139,7 @@ tarball in a clean consumer directory and repeats the tool contracts over real
 stdio, checking version identity, config errors, stdout and process termination.
 CI validates Node 22.14.0, current 22.x and 24.x on PRs and pushes to develop/main.
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md) for checks,
-release policy and the initially disabled automatic publication gate.
+release policy and the explicitly enabled automatic dev publication gate.
 
 For a live smoke, explicitly designate a disposable **development** project and
 configure its credentials in `.env.local` with `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`.

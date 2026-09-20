@@ -39,7 +39,9 @@ by this change. Validation has read-only permissions and no service credentials.
 
 Keep develop's reviewed base in `X.Y.Z-dev.N` form. Automatic dev publication
 requires separate bootstrap, package-specific npm trust and an explicit repository
-variable; it is initially disabled. PRs and manual workflow runs cannot publish.
+variable. Setup is complete and `NPM_DEV_PUBLISH_ENABLED=true` as verified on
+2026-09-20 (KST); merging into develop can publish a new dev version after CI
+succeeds. PRs and manual workflow runs cannot publish.
 Follow [RELEASING.md](RELEASING.md) for every publication action.
 
 Prepare rc/stable metadata on a release branch and review it into `main`. Promote
