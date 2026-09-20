@@ -13,11 +13,13 @@ As verified on **2026-09-20 (KST)**:
 - Automatic dev publication is enabled (`NPM_DEV_PUBLISH_ENABLED=true`). Eligible
   develop pushes publish after validation; a documentation-only merge can also
   produce a new dev version.
-- `dev=0.1.0-dev.4`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
+- `dev=0.1.0-dev.5`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
   There is no rc/stable release or GitHub Release yet. Prefer `@dev` or an exact
   published version until stable is available.
-- main still needs the publishing workflow and reviewed release metadata before
-  rc/stable publication. See [explicit rc/stable publication](#explicit-rcstable-publication).
+- The `0.1.0-rc.1` candidate carries the publishing workflow and matching dated
+  release metadata for main review. Merging the candidate validates main but does
+  not publish a package. Publication requires the explicit GitHub prerelease
+  `v0.1.0-rc.1`; see [explicit rc/stable publication](#explicit-rcstable-publication).
 - See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
   provenance, and live-service evidence and their separate scopes.
 

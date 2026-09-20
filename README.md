@@ -16,7 +16,7 @@ Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
 The package is published on the `dev` channel. Until a stable release exists,
 select `@dev` or an exact published prerelease. As verified on 2026-09-20 (KST),
-`dev` resolves to `0.1.0-dev.4`; `latest` still points to the bootstrap prerelease
+`dev` resolves to `0.1.0-dev.5`; `latest` still points to the bootstrap prerelease
 `0.1.0-dev.1` and does not indicate a stable release. See
 [release status and policy](RELEASING.md).
 
