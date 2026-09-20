@@ -1,22 +1,25 @@
 {
-  "name": "lambdadb-mcp",
+  "name": "@functional-systems/lambdadb-mcp",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "MCP server for LambdaDB data plane",
   "type": "module",
   "engines": {
-    "node": ">=20.7.0"
+    "node": ">=22.14.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "npm run typecheck && npm test",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
+    "check": "npm run check:version && npm run typecheck && npm test",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:live": "npm run build && bash ./scripts/with-env.sh --test test/integration/live.test.mjs",
     "dev": "tsx watch src/index.ts",
     "inspect": "bash ./scripts/inspect.sh",
     "start": "node dist/index.js",
     "start:env": "bash ./scripts/with-env.sh dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
+    "check:version": "node scripts/check-release.mjs",
+    "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
     "@functional-systems/lambdadb": "0.5.1",
@@ -27,5 +30,34 @@
     "@types/node": "^22.12.0",
     "tsx": "^4.20.6",
     "typescript": "^5.8.3"
+  },
+  "bin": {
+    "lambdadb-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "RELEASING.md"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lambdadb/lambdadb-mcp.git"
+  },
+  "homepage": "https://github.com/lambdadb/lambdadb-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/lambdadb/lambdadb-mcp/issues"
+  },
+  "keywords": [
+    "lambdadb",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

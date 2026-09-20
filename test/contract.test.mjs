@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { getEnvConfig } from "../dist/config/env.js";
-import { createServer } from "../dist/server/createServer.js";
+const root = process.env.MCP_TEST_ROOT ? pathToFileURL(`${process.env.MCP_TEST_ROOT}/`) : new URL("../", import.meta.url);
+const { getEnvConfig } = await import(new URL("dist/config/env.js", root));
+const { createServer } = await import(new URL("dist/server/createServer.js", root));
 
 // LambdaDB develop d1a76659884a9ed09283a0b2e2989897dc799247:
 // CollectionResponse has no collectionStatus; dataUpdatedAt is absent before a commit.
@@ -46,14 +49,33 @@ async function harness(t, { write = false, respond } = {}) {
   });
   const server = createServer(config);
   const client = new Client({ name: "contract-test", version: "1.0.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const protocolErrors = [];
+  client.onerror = error => protocolErrors.push(error);
+  const [inMemoryClient, serverTransport] = InMemoryTransport.createLinkedPair();
+  const clientTransport = process.env.MCP_TEST_BIN ? new StdioClientTransport({
+    command: process.platform === "win32" ? process.execPath : process.env.MCP_TEST_BIN,
+    args: process.platform === "win32" ? [process.env.MCP_TEST_BIN] : [],
+    cwd: process.env.MCP_TEST_CWD,
+    stderr: "pipe",
+    env: {
+      PATH: process.env.PATH,
+      LAMBDADB_BASE_URL: baseUrl, LAMBDADB_PROJECT_NAME: "test",
+      LAMBDADB_PROJECT_API_KEY: "test-secret",
+      ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {})
+    }
+  }) : inMemoryClient;
+  let stderr = "";
+  if (process.env.MCP_TEST_BIN) clientTransport.stderr.on("data", chunk => { stderr += chunk; });
   t.after(async () => {
     await client.close();
     await server.close();
+    assert.deepEqual(protocolErrors, [], "stdout must contain only valid MCP messages");
+    assert.equal(stderr, "", "Successful tool calls must not leak diagnostics or credentials");
     await new Promise((resolve, reject) => api.close((error) => error ? reject(error) : resolve()));
   });
-  await server.connect(serverTransport);
+  if (!process.env.MCP_TEST_BIN) await server.connect(serverTransport);
   await client.connect(clientTransport);
+  if (process.env.MCP_TEST_VERSION) assert.equal(client.getServerVersion().version, process.env.MCP_TEST_VERSION);
   return {
     client, requests, baseUrl,
     call: (name, args = {}) => client.callTool({ name: `lambdadb_${name}`, arguments: args })
@@ -240,4 +262,13 @@ test("download parse failures surface as MCP errors rather than empty success", 
   const result = await h.call("query_collection", { collectionName: "items", ...query });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /parse documents from URL/);
+});
+
+test("SDK authentication failures return MCP tool errors and leave the server usable", async (t) => {
+  const h = await harness(t, { respond: () => ({ status: 401, body: { message: "Fixture access denied" } }) });
+  const result = await h.call("list_collections");
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /denied|unauthorized|authentication/i);
+  assert.ok(!JSON.stringify(result).includes("test-secret"));
+  assert.equal((await h.client.listTools()).tools.length, 5);
 });

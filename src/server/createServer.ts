@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { EnvConfig } from "../config/env.js";
@@ -7,7 +8,7 @@ export function createServer(config: EnvConfig): McpServer {
   const server = new McpServer(
     {
       name: "lambdadb-mcp",
-      version: "0.1.0"
+      version: JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version
     },
     {
       instructions:
