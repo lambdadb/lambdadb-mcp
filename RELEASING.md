@@ -16,10 +16,10 @@ As verified on **2026-09-20 (KST)**:
 - `dev=0.1.0-dev.5`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
   There is no rc/stable release or GitHub Release yet. Prefer `@dev` or an exact
   published version until stable is available.
-- The `0.1.0-rc.1` candidate carries the publishing workflow and matching dated
+- The `0.1.0` stable candidate carries the publishing workflow and matching dated
   release metadata for main review. Merging the candidate validates main but does
-  not publish a package. Publication requires the explicit GitHub prerelease
-  `v0.1.0-rc.1`; see [explicit rc/stable publication](#explicit-rcstable-publication).
+  not publish a package. Publication requires the explicit GitHub release
+  `v0.1.0` with `prerelease: false`, which publishes to `latest`; see [explicit rc/stable publication](#explicit-rcstable-publication).
 - See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
   provenance, and live-service evidence and their separate scopes.
 

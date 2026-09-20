@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0-rc.1] - 2026-09-20
+## [0.1.0] - 2026-09-20
 
 - Package `@functional-systems/lambdadb-mcp` and the `lambdadb-mcp` executable for npm/npx distribution under Apache-2.0.
 - Add OIDC publishing for develop, rc and stable channels with exact tarball consumer checks; automatic dev publishing is enabled.
