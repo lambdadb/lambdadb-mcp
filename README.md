@@ -14,19 +14,20 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-The package is published on the `dev` channel. Until a stable release exists,
-select `@dev` or an exact published prerelease. As verified on 2026-09-20 (KST),
-`dev` resolves to `0.1.0-dev.4`; `latest` still points to the bootstrap prerelease
-`0.1.0-dev.1` and does not indicate a stable release. See
+The stable package is available on npm. As verified on 2026-09-20 (KST),
+`latest` resolves to `0.1.0` and `dev` to `0.1.0-dev.5`. Use an exact version for
+reproducibility or the default stable channel for initial setup. See
 [release status and policy](RELEASING.md).
 
 ```sh
-npx --yes @functional-systems/lambdadb-mcp@dev
-# After a stable release exists:
+npx --yes @functional-systems/lambdadb-mcp
+# Pin the first stable release:
+npx --yes @functional-systems/lambdadb-mcp@0.1.0
+# Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
-# Or run without a global installation:
-npx --yes @functional-systems/lambdadb-mcp
+# Opt into development builds explicitly:
+npx --yes @functional-systems/lambdadb-mcp@dev
 ```
 
 Set the environment variables below in your MCP client or securely in the parent
