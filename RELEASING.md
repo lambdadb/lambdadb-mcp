@@ -1,5 +1,26 @@
 # Releasing LambdaDB MCP
 
+## Prepared stable candidate: 0.1.1 (2026-09-29 KST)
+
+The `release/0.1.1` branch promotes reviewed develop commit
+`d1a041ed8497eb8113b616faf87b2702fb5b80c5` with matching package/lock versions and
+a dated changelog. SDK 0.6.0 adds keyword facets, match-all and facet-only queries,
+and all 16 text analyzers. Read-only defaults and explicit write opt-in remain.
+See `docs/validation/2026-09-29-0.1.1.md` in the reviewed release source for the
+candidate validation record.
+
+Review the release PR into **main using a merge commit** to preserve ancestry.
+Preparation does not publish 0.1.1. After the main candidate is verified and
+publication is authorized, tag that main commit `v0.1.1` and publish a non-prerelease
+GitHub Release. The existing workflow validates, packs, tests, and publishes its
+exact tarball to npm `latest` with OIDC. Verify version, gitHead, integrity,
+provenance, and installed behavior before announcing availability.
+
+After publication, synchronize main back into develop through a PR with the next
+base `0.1.2-dev.1`. Do not merge stable version metadata directly into develop.
+Facets need a supporting server and newly built keyword indexes; this release
+does not migrate existing Collections or indexes.
+
 ## Status and policy
 
 As verified on **2026-09-20 (KST)**:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.1] - 2026-09-29
+
 - Pin the LambdaDB TypeScript SDK to 0.6.0, including all 16 text analyzers.
 - Add keyword facets, query omission for match-all, and facet-only `size: 0` to
   `lambdadb_query_collection`. Preserve omitted/null bucket sizes and facet results,
