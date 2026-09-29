@@ -95,10 +95,11 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.5.1`.
-The tool contract was checked against LambdaDB develop
-[`d1a76659884a9ed09283a0b2e2989897dc799247`](https://github.com/lambdadb/lambdadb/commit/d1a76659884a9ed09283a0b2e2989897dc799247).
-This source revision does not establish which API revision is deployed.
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.6.0`, checked against
+the published package and [v0.6.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.6.0)
+at [`491d01e`](https://github.com/lambdadb/lambdadb-typescript-client/commit/491d01e0eb54bd135823fab79cbe32396ec03691).
+This dependency update applies to builds containing this change. Publishing the SDK
+alone does not update previously published or installed MCP packages.
 
 - Collection creation requires a nonempty `indexConfigs` and accepts `description`,
   metadata `tags`, `partitionConfig`, and `snapshotRetentionInDays` (1–31).
@@ -106,6 +107,12 @@ This source revision does not establish which API revision is deployed.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
   Omitting `ref` reads from `main`. `consistentRead: true` is supported only by
   Query/Fetch with an omitted ref or a direct Branch ref. List has no `consistentRead`.
+- Query may omit `query` for match-all and accepts `facets` for keyword bucket counts
+  across all matches. Document `size` is 1–100, or 0 when at least one facet is supplied.
+  Up to five facet fields (including dotted paths) are allowed. Each field's options
+  accept only `size`: an integer from 1–100, omitted, or `null`. Omitted/null bucket
+  size uses the server default of 10; MCP forwards it unchanged. Empty `facets: {}`
+  is accepted except with `size: 0`. Facet results survive inline and `docsUrl` responses.
 - List also accepts `filter`, `fields`, `includeVectors`, and `partitionFilter`.
   The SDK selects the extended POST endpoint when needed and preserves pagination tokens.
 - Upsert/Delete accept an optional `branch`; omitting it writes to `main`.
@@ -122,6 +129,67 @@ Query/Fetch/List download top-level document arrays and retain legacy `{ "docs":
 support without sending the project API key to the download URL. No additional SDK
 patch is needed for this issue.
 
+### Query examples
+
+Arguments for `lambdadb_query_collection`, returning only facets across all documents:
+
+```json
+{
+  "collectionName": "products",
+  "size": 0,
+  "facets": { "category": {}, "metadata.brand": { "size": null } }
+}
+```
+
+Return matching documents and facets together:
+
+```json
+{
+  "collectionName": "products",
+  "query": { "queryString": { "query": "title:coffee" } },
+  "size": 10,
+  "facets": { "category": { "size": 5 } },
+  "fields": { "include": ["id", "title", "category"] }
+}
+```
+
+For match-all documents without facets, use `{ "collectionName": "products", "size": 10 }`.
+MCP returns JSON in its text content, with `docs`, `total`, `took`, and (when returned
+by the service) `facets`, for example `"facets": { "category": { "buckets": [
+{ "value": "drinks", "count": 42 } ] } }`. Bucket counts cover all matching
+documents, independently of document `size`; duplicate keyword array values count
+once per document. `total` counts returned documents (0 for facet-only requests),
+not all matching documents. Counts use JavaScript Number and may lose integer precision
+above `Number.MAX_SAFE_INTEGER`.
+
+Facets require a supporting server deployment and newly built keyword indexes.
+This MCP update does not migrate existing Collections or indexes. Partial updates,
+segment merging, and old Tags do not upgrade old indexes. If migration is needed,
+plan and authorize reinsertion into a new Collection separately.
+
+### Text analyzers in collection creation
+
+With write tools explicitly enabled, `lambdadb_create_collection` accepts:
+
+```json
+{
+  "collectionName": "products",
+  "indexConfigs": {
+    "title": { "type": "text", "analyzers": ["english", "chinese", "french"] },
+    "category": { "type": "keyword" },
+    "metadata": { "type": "object", "objectIndexConfigs": { "brand": { "type": "keyword" } } }
+  }
+}
+```
+
+Supported lowercase names: `standard`, `english`, `korean`, `japanese`, `chinese`,
+`cjk`, `arabic`, `french`, `german`, `hindi`, `indonesian`, `italian`, `portuguese`,
+`russian`, `spanish`, `turkish`. Omitting `analyzers` uses the server default
+`["standard"]`; an empty list is passed through and does not select that default.
+Analyzers run independently without automatic language detection. Lists are sent
+unchanged; avoid duplicate names, which the server rejects. Index configuration
+validation remains in the SDK. Write tools remain disabled by default.
+
 ## Tests
 
 ```bash
@@ -134,7 +202,10 @@ npm run test:package
 client to this server and exercise the installed SDK against a local HTTP fixture.
 They cover read-only defaults, write opt-in, List/Get response validation, creation
 HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
-arrays/errors and local environment-file loading. They do not require credentials
+arrays/errors and local environment-file loading. Facet tests validate the published
+MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-only,
+document+facet, omitted/null/default bucket options, boundaries, invalid requests,
+and all 16 analyzers. They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real
 stdio, checking version identity, config errors, stdout and process termination.
@@ -152,7 +223,10 @@ LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run
 
 The live test creates one uniquely named temporary collection, checks real HTTP
 201/202 responses, metadata, pagination, filters, sorting, and Branch/Tag/Alias
-reads. It writes two 3 MiB documents to force actual `docsUrl` array downloads
+reads. It also checks all 16 analyzers in collection metadata, match-all, facet-only
+and document+facet results, default/null bucket size, keyword arrays, dotted paths,
+and facet preservation across refs and `docsUrl` downloads. The designated server
+must support these features. It writes two 3 MiB documents to force actual `docsUrl` array downloads
 through the MCP tools and checks full payload integrity and download credential
 isolation. It allows up to five minutes for committed visibility, deletes its
 temporary collection in cleanup, and verifies that the collection is absent.

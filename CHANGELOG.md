@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Pin the LambdaDB TypeScript SDK to 0.6.0, including all 16 text analyzers.
+- Add keyword facets, query omission for match-all, and facet-only `size: 0` to
+  `lambdadb_query_collection`. Preserve omitted/null bucket sizes and facet results,
+  including automatic document downloads; retain existing search options and refs.
+- Expose facet limits and the `size: 0` condition in MCP JSON Schema and validate
+  them through tool calls, SDK HTTP contracts, installed-package tests, and the
+  opt-in live suite. Read-only defaults and explicit write opt-in are unchanged.
+- Facets require a supporting server and newly built keyword indexes. Existing
+  Collections are not migrated, and existing MCP installations require an update
+  to a separately published MCP version containing this change.
+
 ## [0.1.0] - 2026-09-20
 
 - Package `@functional-systems/lambdadb-mcp` and the `lambdadb-mcp` executable for npm/npx distribution under Apache-2.0.

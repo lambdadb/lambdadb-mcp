@@ -17,6 +17,14 @@ import {
   readRefSchema
 } from "./shared.js";
 
+const facetsSchema = z.record(z.string(), z.strictObject({
+  size: z.number().int().min(1).max(100).nullable().optional()
+    .describe("Maximum buckets; omitted or null uses the server default of 10.")
+})).refine((facets) => Object.keys(facets).length <= 5, "At most five facet fields may be requested.")
+  // Zod refinements are not represented in JSON Schema without explicit metadata.
+  .meta({ maxProperties: 5 })
+  .describe("Keyword field names (including dotted paths) mapped to bucket options. Requires newly built keyword indexes on a supporting server.");
+
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
     "lambdadb_list_collections",
@@ -72,15 +80,17 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Run a search query against a collection and return the matching documents.",
+        "Search documents and optionally return keyword facet counts across all matches. Omit query for match-all; size: 0 requires at least one facet and returns only facets. Facets require a supporting server and newly built keyword indexes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(1).max(100).optional(),
-        query: z.record(z.string(), z.any()),
+        size: z.number().int().min(0).max(100).optional()
+          .describe("Documents to return (1–100), or 0 with nonempty facets."),
+        query: z.record(z.string(), z.any()).optional().describe("Omit for match-all."),
+        facets: facetsSchema.optional(),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "true requires a direct branch ref or omitted ref (main)."
@@ -92,12 +102,23 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         )).optional(),
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
+      }).superRefine((input, context) => {
+        if (input.size === 0 && Object.keys(input.facets ?? {}).length === 0) {
+          context.addIssue({ code: "custom", path: ["facets"], message: "size: 0 requires at least one facet." });
+        }
+      }).meta({
+        // Keep the cross-field rule visible to MCP clients as well as tools/call.
+        allOf: [{
+          if: { properties: { size: { const: 0 } }, required: ["size"] },
+          then: { required: ["facets"], properties: { facets: { minProperties: 1 } } }
+        }]
       })
     },
     async ({
       collectionName,
       size,
       query,
+      facets,
       ref,
       consistentRead,
       includeVectors,
@@ -109,6 +130,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         const client = createLambdaDBClient(config);
         const input: QueryCollectionInput = {
           query,
+          facets,
           size,
           ...readOptions(ref, consistentRead),
           includeVectors,
