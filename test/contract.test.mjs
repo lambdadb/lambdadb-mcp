@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import { queryCollectionRequestBodyToJSON } from "@functional-systems/lambdadb/models/operations";
 const root = process.env.MCP_TEST_ROOT ? pathToFileURL(`${process.env.MCP_TEST_ROOT}/`) : new URL("../", import.meta.url);
 const { getEnvConfig } = await import(new URL("dist/config/env.js", root));
 const { createServer } = await import(new URL("dist/server/createServer.js", root));
@@ -132,6 +134,111 @@ test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
   assert.deepEqual(result.collection, { ...created, createdAt: new Date(timestamp).toISOString() });
   assert.equal(h.requests[0].method, "POST");
   assert.deepEqual(h.requests[0].body, input);
+});
+
+test("all 16 analyzers reach collection creation without altering analyzer lists", async (t) => {
+  const h = await harness(t, { write: true, respond: () => ({ status: 201, body: { collection: created } }) });
+  const analyzers = ["standard", "english", "korean", "japanese", "chinese", "cjk", "arabic", "french",
+    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish"];
+  const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection").inputSchema;
+  const validate = new AjvJsonSchemaValidator().getValidator(schema);
+  for (const names of [...analyzers.map(name => [name]), analyzers, [], ["chinese", "chinese"]]) {
+    const input = { collectionName: "items", indexConfigs: { title: { type: "text", analyzers: names } } };
+    assert.equal(validate(input).valid, true);
+    data(await h.call("create_collection", input));
+    assert.deepEqual(h.requests.at(-1).body, input);
+  }
+  const accepted = h.requests.length;
+  assert.equal((await h.call("create_collection", {
+    collectionName: "items", indexConfigs: { title: { type: "text", analyzers: ["unknown"] } }
+  })).isError, true);
+  assert.equal(h.requests.length, accepted);
+});
+
+test("facet JSON Schema, tool validation and SDK requests agree on optional/null sizes and limits", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs: [], total: 0, took: 1, isDocsInline: true, facets: {} } }) });
+  const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_query_collection").inputSchema;
+  const validate = new AjvJsonSchemaValidator().getValidator(schema);
+  assert.deepEqual(schema.required, ["collectionName"]);
+  assert.equal(schema.properties.facets.maxProperties, 5);
+  assert.equal(schema.properties.facets.additionalProperties.additionalProperties, false);
+  const valid = [
+    {}, { size: 1 }, { size: 100 }, { facets: {} },
+    { size: 0, facets: { category: {} } },
+    { size: 0, facets: { category: { size: null } } },
+    { facets: { category: { size: 1 } } }, { facets: { category: { size: 100 } } },
+    { ...query, size: 2, facets: { category: { size: 10 }, "metadata.category": {} } },
+    { facets: Object.fromEntries(["a", "b", "c", "d", "e"].map(key => [key, {}])) },
+    // The SDK leaves field-name semantics to the service; do not invent a nonempty-name constraint.
+    { facets: { "": {} } }
+  ];
+  for (const input of valid) {
+    assert.equal(validate({ collectionName: "items", ...input }).valid, true, JSON.stringify(input));
+    data(await h.call("query_collection", { collectionName: "items", ...input }));
+    const body = h.requests.at(-1).body;
+    assert.deepEqual(body, JSON.parse(queryCollectionRequestBodyToJSON(input)));
+    assert.deepEqual(body.facets, input.facets, "Do not inject bucket defaults or drop null");
+    assert.equal(Object.hasOwn(body, "query"), Object.hasOwn(input, "query"));
+    assert.equal(Object.hasOwn(body, "size"), Object.hasOwn(input, "size"));
+    assert.equal(h.requests.at(-1).method, "POST");
+    assert.ok(h.requests.at(-1).url.pathname.endsWith("/query"));
+  }
+  const invalidFacets = [
+    { size: 0 }, { size: 0, facets: {} }, { facets: null }, { facets: [] },
+    { facets: { category: null } }, { facets: { category: [] } },
+    { facets: { category: { size: 0 } } }, { facets: { category: { size: 101 } } },
+    { facets: { category: { size: -1 } } }, { facets: { category: { size: 1.5 } } },
+    { facets: { category: { size: "10" } } }, { facets: { category: { size: true } } },
+    { facets: { category: { unknown: true } } },
+    { facets: Object.fromEntries(["a", "b", "c", "d", "e", "f"].map(key => [key, {}])) }
+  ];
+  for (const input of invalidFacets) assert.throws(() => queryCollectionRequestBodyToJSON(input));
+  const accepted = h.requests.length;
+  for (const input of [...invalidFacets, { query: null }, { size: -1 }, { size: 101 }, { size: null }, { size: 1.5 }]) {
+    assert.equal(validate({ collectionName: "items", ...input }).valid, false, JSON.stringify(input));
+    assert.equal((await h.call("query_collection", { collectionName: "items", ...input })).isError, true, JSON.stringify(input));
+  }
+  assert.equal(h.requests.length, accepted, "Invalid requests must not reach HTTP");
+});
+
+test("facet-only and document+facet results preserve counts and all search options", async (t) => {
+  const facets = { category: { buckets: [{ value: "한국어", count: 12 }] }, "metadata.category": { buckets: [] } };
+  for (const size of [0, 2]) {
+    const response = { docs: size === 0 ? [] : docs, total: size === 0 ? 0 : docs.length, took: 7, isDocsInline: true, facets };
+    const h = await harness(t, { respond: () => ({ body: response }) });
+    for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
+      const input = { size, ...(size ? query : {}), facets: { category: { size: null }, "metadata.category": {} },
+        ...(ref ? { ref } : {}), consistentRead: !ref || ref.kind === "branch", includeVectors: true,
+        sort: [{ category: "ASC" }], fields: { include: ["title"], exclude: ["hidden"] },
+        partitionFilter: { field: "tenant", in: ["test"] } };
+      assert.deepEqual(data(await h.call("query_collection", { collectionName: "items", ...input })), response);
+      assert.deepEqual(h.requests.at(-1).body, input);
+    }
+    for (const kind of ["tag", "alias"]) {
+      assert.equal((await h.call("query_collection", {
+        collectionName: "items", size, facets: { category: {} }, ref: { kind, name: "release" }, consistentRead: true
+      })).isError, true);
+    }
+    assert.equal(h.requests.length, 4);
+  }
+});
+
+test("document+facet metadata survives docsUrl hydration without download credentials", async (t) => {
+  const facets = { category: { buckets: [{ value: "test", count: 20 }] } };
+  for (const payload of [docs, [], { docs }]) {
+    const h = await harness(t, { respond: req => req.url.pathname === "/download"
+      ? { body: payload }
+      : { body: { docs: [], total: 20, took: 7, isDocsInline: false, facets, docsUrl: `${req.url.origin}/download` } } });
+    const result = data(await h.call("query_collection", { collectionName: "items", facets: { category: {} } }));
+    assert.deepEqual(result.facets, facets);
+    assert.deepEqual(result.docs, Array.isArray(payload) ? payload : docs);
+    assert.equal(result.total, 20);
+    assert.equal(result.took, 7);
+    assert.equal(result.isDocsInline, true);
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.requests[1].headers["x-api-key"], undefined);
+    assert.equal(h.requests[1].headers.authorization, undefined);
+  }
 });
 
 for (const [name, args] of [["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {

@@ -1,5 +1,26 @@
 # Releasing LambdaDB MCP
 
+## Prepared stable candidate: 0.1.1 (2026-09-29 KST)
+
+The `release/0.1.1` branch promotes reviewed develop commit
+`d1a041ed8497eb8113b616faf87b2702fb5b80c5` with matching package/lock versions and
+a dated changelog. SDK 0.6.0 adds keyword facets, match-all and facet-only queries,
+and all 16 text analyzers. Read-only defaults and explicit write opt-in remain.
+See `docs/validation/2026-09-29-0.1.1.md` in the reviewed release source for the
+candidate validation record.
+
+Review the release PR into **main using a merge commit** to preserve ancestry.
+Preparation does not publish 0.1.1. After the main candidate is verified and
+publication is authorized, tag that main commit `v0.1.1` and publish a non-prerelease
+GitHub Release. The existing workflow validates, packs, tests, and publishes its
+exact tarball to npm `latest` with OIDC. Verify version, gitHead, integrity,
+provenance, and installed behavior before announcing availability.
+
+After publication, synchronize main back into develop through a PR with the next
+base `0.1.2-dev.1`. Do not merge stable version metadata directly into develop.
+Facets need a supporting server and newly built keyword indexes; this release
+does not migrate existing Collections or indexes.
+
 ## Status and policy
 
 As verified on **2026-09-20 (KST)**:
@@ -13,13 +34,13 @@ As verified on **2026-09-20 (KST)**:
 - Automatic dev publication is enabled (`NPM_DEV_PUBLISH_ENABLED=true`). Eligible
   develop pushes publish after validation; a documentation-only merge can also
   produce a new dev version.
-- `dev=0.1.0-dev.5`; `latest=0.1.0-dev.1` is still the bootstrap prerelease.
-  There is no rc/stable release or GitHub Release yet. Prefer `@dev` or an exact
-  published version until stable is available.
-- The `0.1.0` stable candidate carries the publishing workflow and matching dated
-  release metadata for main review. Merging the candidate validates main but does
-  not publish a package. Publication requires the explicit GitHub release
-  `v0.1.0` with `prerelease: false`, which publishes to `latest`; see [explicit rc/stable publication](#explicit-rcstable-publication).
+- First stable release: [`v0.1.0`](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.0).
+  The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/35494365745)
+  published `0.1.0` with OIDC and provenance; `latest=0.1.0`, `dev=0.1.0-dev.5`.
+- main contains the stable release and publishing workflow. develop resumes with
+  the `0.1.1-dev.1` base; CI generates its dev counter from first-parent history.
+  Eligible develop pushes can publish the next dev version while leaving
+  `latest` on `0.1.0`.
 - See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
   provenance, and live-service evidence and their separate scopes.
 

@@ -9,6 +9,12 @@ import { getEnvConfig } from "../../dist/config/env.js";
 import { createLambdaDBClient } from "../../dist/lambdadb/client.js";
 import { createServer } from "../../dist/server/createServer.js";
 
+// SDK errors can contain authenticated requests; never emit those objects.
+function safeError(error) {
+  if (error instanceof assert.AssertionError) return error;
+  return new Error(`${error?.name ?? "Error"}; HTTP ${error?.statusCode ?? "unavailable"}`);
+}
+
 async function eventually(operation, label, timeoutMs = 300_000) {
   const started = Date.now();
   while (!(await operation())) {
@@ -20,7 +26,7 @@ async function eventually(operation, label, timeoutMs = 300_000) {
 
 // Explicitly invoked only. Creates one owned collection and deletes it in finally.
 // No environment values, presigned URLs, or document payloads are logged.
-test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 900_000 }, async () => {
+test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 900_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
   const config = getEnvConfig();
   assert.equal(process.env.LAMBDADB_LIVE_CONFIRM_PROJECT, config.projectName,
@@ -79,6 +85,10 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
   const fields = { include: ["id", "marker"] };
   const query = { query: { queryString: { query: "*:*" } }, size: 2 };
   const ids = ["offload-1", "offload-2"];
+  const analyzers = ["standard", "english", "korean", "japanese", "chinese", "cjk", "arabic", "french",
+    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish"];
+  const categories = ["shared", "shared", ...Array.from({ length: 12 }, (_, i) => `bucket-${i}`)];
+  const markerFacets = { marker: { buckets: [{ value: "offload", count: 2 }] } };
   const payload = "x".repeat(3 * 1024 * 1024);
   const digest = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -89,7 +99,11 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
     await call("list_collections", { size: 1 });
     console.info("[live] Project List and write opt-in: PASS");
     const made = await scoped("create_collection", {
-      indexConfigs: { marker: { type: "keyword" } }, description: "MCP live contract smoke",
+      indexConfigs: {
+        marker: { type: "keyword" }, category: { type: "keyword" },
+        title: { type: "text", analyzers },
+        metadata: { type: "object", objectIndexConfigs: { category: { type: "keyword" } } }
+      }, description: "MCP live contract smoke",
       tags: { purpose: "mcp-smoke" }, snapshotRetentionInDays: 1
     });
     assert.ok(trace.some((entry) => entry.status === 201));
@@ -100,6 +114,7 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
     const metadata = await scoped("get_collection");
     assert.equal(metadata.collection.tags.purpose, "mcp-smoke");
     assert.equal(metadata.collection.snapshotRetentionInDays, 1);
+    assert.deepEqual(metadata.collection.indexConfigs.title.analyzers, analyzers);
     let pageToken;
     let found = false;
     do {
@@ -112,7 +127,8 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
 
     // Each write is below the request limit; combined results exceed the offload threshold.
     for (const id of ids) {
-      await scoped("upsert_docs", { docs: [{ id, marker: "offload", payload }] });
+      await scoped("upsert_docs", { docs: [{ id, marker: "offload", payload, category: categories,
+        metadata: { category: "nested" }, title: "Hello 안녕하세요 你好 Bonjour" }] });
       assert.ok(trace.some((entry) => entry.status === 202));
     }
     await eventually(async () => {
@@ -124,8 +140,37 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
       return result.docs.length === 2;
     }, "main committed List");
 
+    for (const consistentRead of [false, true]) {
+      for (const bucketOptions of [{}, { size: null }, { size: 100 }]) {
+        const result = await scoped("query_collection", {
+          size: 0, consistentRead, facets: { marker: {}, category: bucketOptions, "metadata.category": { size: 1 } }
+        });
+        assert.deepEqual(result.docs, []);
+        assert.equal(result.total, 0);
+        assert.deepEqual(result.facets.marker, markerFacets.marker);
+        assert.deepEqual(result.facets["metadata.category"], { buckets: [{ value: "nested", count: 2 }] });
+        assert.equal(result.facets.category.buckets.length, bucketOptions.size === 100 ? 13 : 10);
+        assert.ok(result.facets.category.buckets.every(bucket => bucket.count === 2), "Array duplicates count once per document");
+      }
+    }
+    const matchAll = await scoped("query_collection", { size: 2, fields });
+    assert.deepEqual(matchAll.docs.map(({ doc }) => doc.id).sort(), ids);
+    const filtered = await scoped("query_collection", {
+      query: { queryString: { query: "marker:offload" } }, size: 1, fields, facets: { marker: {} }
+    });
+    assert.equal(filtered.docs.length, 1);
+    assert.deepEqual(filtered.facets, markerFacets, "Counts include all matches, beyond document size");
+    for (const input of [{ size: 0 }, { size: 0, facets: {} }, { facets: { marker: { size: 0 } } },
+      { facets: Object.fromEntries(["a", "b", "c", "d", "e", "f"].map(key => [key, {}])) }]) {
+      trace = [];
+      const invalid = await client.callTool({ name: "lambdadb_query_collection", arguments: { collectionName, ...input } });
+      assert.equal(invalid.isError, true);
+      assert.equal(trace.length, 0);
+    }
+    console.info("[live] 16 analyzers, match-all, facet-only, document+facet, default/null/explicit bucket size, arrays, dotted paths, invalid requests: PASS");
+
     for (const [name, args] of [
-      ["query_collection", query], ["fetch_docs", { ids }],
+      ["query_collection", { ...query, facets: { marker: {} } }], ["fetch_docs", { ids }],
       ["list_docs", { size: 2 }], ["list_docs", { size: 2, fields: { include: ["id", "payload"] } }]
     ]) {
       const result = await scoped(name, args);
@@ -133,6 +178,7 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
       assert.equal(downloadCount, 1);
       assert.equal(result.isDocsInline, true);
       assert.equal(result.total, 2);
+      if (name === "query_collection") assert.deepEqual(result.facets, markerFacets);
       assert.deepEqual(result.docs.map(({ doc }) => doc.id).sort(), ids);
       for (const { doc } of result.docs) {
         assert.equal(doc.payload.length, payload.length);
@@ -158,6 +204,9 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
         const result = await scoped(name, { ...args, fields, ref });
         assert.deepEqual(result.docs.map(({ doc }) => doc.id).sort(), ids);
       }
+      const faceted = await scoped("query_collection", { size: 0, facets: { marker: {} }, ref });
+      assert.deepEqual(faceted.docs, []);
+      assert.deepEqual(faceted.facets, markerFacets);
       // Ref-only List exercises the SDK GET path rather than the extended POST path.
       const page = await scoped("list_docs", { size: 1, ref });
       assert.equal(page.docs.length, 1);
@@ -179,6 +228,8 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
     await scoped("delete_docs", { branch: "main", filter: { queryString: { query: "marker:offload" } } });
     assert.ok(trace.some((entry) => entry.status === 202));
     console.info("[live] Branch write isolation, delete by IDs, delete by filter HTTP 202: PASS");
+  } catch (error) {
+    throw safeError(error);
   } finally {
     try {
       if (created) {
@@ -191,6 +242,9 @@ test("live MCP metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 
         }, "collection absence after cleanup", 60_000);
         console.info(`[live] Deleted ${collectionName}; absence verified`);
       }
+    } catch (error) {
+      console.error(`[live] Cleanup failed for ${collectionName}`);
+      throw safeError(error);
     } finally {
       globalThis.fetch = originalFetch;
       await client.close();

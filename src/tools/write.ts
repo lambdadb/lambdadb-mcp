@@ -16,7 +16,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_create_collection",
     {
       title: "Create Collection",
-      description: "Create a new collection in the configured project.",
+      description: "Create a new collection in the configured project. Text index analyzers: standard, english, korean, japanese, chinese, cjk, arabic, french, german, hindi, indonesian, italian, portuguese, russian, spanish, turkish. Keyword indexes built on a supporting server support facets.",
       annotations: {
         openWorldHint: false
       },

@@ -1,6 +1,6 @@
 {
   "name": "@functional-systems/lambdadb-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "MCP server for LambdaDB data plane",
   "type": "module",
@@ -22,7 +22,7 @@
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
-    "@functional-systems/lambdadb": "0.5.1",
+    "@functional-systems/lambdadb": "0.6.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "^4.1.12"
   },
