@@ -1,6 +1,27 @@
 # Releasing LambdaDB MCP
 
-## Status and policy
+## Current stable release: 0.1.1 (2026-09-29 KST)
+
+[v0.1.1](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.1) tags main
+commit `40a8afc25bb93fb14d03d23e3ab38aa1924cf060`, which merged the reviewed release
+PR with preserved ancestry. The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/36557646939)
+passed Node 22.14.0 / 22 / 24 validation and published the tested artifact with
+OIDC and provenance. Registry snapshot: `latest=0.1.1`, `dev=0.1.1-dev.7`.
+SDK 0.6.0 adds keyword facets, match-all and facet-only queries, and all 16 text
+analyzers. Read-only defaults and explicit write opt-in remain.
+
+See `docs/validation/2026-09-29-0.1.1.md` in this source for separate candidate,
+development-service, and published-package evidence. Do not repeat the 0.1.1
+publication or move its tag.
+
+This synchronization brings main back into develop with the next base
+`0.1.2-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges may publish a new dev version while `latest` stays on
+0.1.1. Do not merge stable version metadata directly into develop.
+Facets need a supporting server and newly built keyword indexes; this release
+does not migrate existing Collections or indexes.
+
+## Historical bootstrap and 0.1.0 status
 
 As verified on **2026-09-20 (KST)**:
 
