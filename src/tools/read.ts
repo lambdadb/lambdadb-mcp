@@ -25,6 +25,22 @@ const facetsSchema = z.record(z.string(), z.strictObject({
   .meta({ maxProperties: 5 })
   .describe("Keyword field names (including dotted paths) mapped to bucket options. Requires newly built keyword indexes on a supporting server.");
 
+// The SDK validates UTF-8 byte budgets, nonblank text, unique paths/criteria,
+// scoring-query requirements and cross-field bounds before sending HTTP.
+const rerankSchema = z.strictObject({
+  provider: z.literal("typesafe"),
+  model: z.literal("jev-1.13.0"),
+  queryText: z.string().min(1).describe("Required nonblank query text, at most 8 KiB UTF-8, including for raw vector queries."),
+  fields: z.array(z.string().min(1)).min(1).max(8).meta({ uniqueItems: true })
+    .describe("Unique stored scalar text paths in model input order; separate from returned fields projection."),
+  candidateSize: z.number().int().min(1).max(100).nullable().optional()
+    .describe("Merged candidate cap, at least final size. Omitted/null defaults to max(50, size); never changes knn.k."),
+  onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
+    .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures."),
+  criteria: z.array(z.string().min(1)).min(2).max(10).meta({ uniqueItems: true }).nullable().optional()
+    .describe("Distinct nonblank descriptions from lowest to highest relevance, at most 2 KiB each and 8 KiB total UTF-8. Omitted/null uses defaults.")
+}).nullable().optional().describe("Optional per-query managed reranking; requires a scoring query and positive size, forbids sort. LambdaDB manages provider credentials.");
+
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
     "lambdadb_list_collections",
@@ -80,7 +96,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Search documents and optionally return keyword facet counts across all matches. Omit query for match-all; size: 0 requires at least one facet and returns only facets. Facets require a supporting server and newly built keyword indexes.",
+        "Search documents with optional managed reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -91,6 +107,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
           .describe("Documents to return (1–100), or 0 with nonempty facets."),
         query: z.record(z.string(), z.any()).optional().describe("Omit for match-all."),
         facets: facetsSchema.optional(),
+        rerank: rerankSchema,
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "true requires a direct branch ref or omitted ref (main)."
@@ -111,6 +128,13 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         allOf: [{
           if: { properties: { size: { const: 0 } }, required: ["size"] },
           then: { required: ["facets"], properties: { facets: { minProperties: 1 } } }
+        }, {
+          if: { properties: { rerank: { type: "object" } }, required: ["rerank"] },
+          then: {
+            required: ["query"],
+            properties: { size: { minimum: 1 } },
+            not: { required: ["sort"] }
+          }
         }]
       })
     },
@@ -119,6 +143,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       size,
       query,
       facets,
+      rerank,
       ref,
       consistentRead,
       includeVectors,
@@ -131,6 +156,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         const input: QueryCollectionInput = {
           query,
           facets,
+          rerank,
           size,
           ...readOptions(ref, consistentRead),
           includeVectors,

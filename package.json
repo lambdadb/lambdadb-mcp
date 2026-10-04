@@ -1,6 +1,6 @@
 {
   "name": "@functional-systems/lambdadb-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "description": "MCP server for LambdaDB data plane",
   "type": "module",
@@ -11,6 +11,7 @@
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
     "check": "npm run check:version && npm run typecheck && npm test",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:live:rerank": "npm run build && bash ./scripts/with-env.sh --test test/integration/rerank-live.test.mjs",
     "test:live": "npm run build && bash ./scripts/with-env.sh --test test/integration/live.test.mjs",
     "dev": "tsx watch src/index.ts",
     "inspect": "bash ./scripts/inspect.sh",
@@ -22,7 +23,7 @@
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
-    "@functional-systems/lambdadb": "0.6.0",
+    "@functional-systems/lambdadb": "0.7.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "^4.1.12"
   },

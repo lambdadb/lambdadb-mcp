@@ -1,27 +1,51 @@
 # Releasing LambdaDB MCP
 
-## Prepared stable candidate: 0.1.1 (2026-09-29 KST)
+## Prepared stable candidate: 0.1.2 (2026-10-04 KST)
 
-The `release/0.1.1` branch promotes reviewed develop commit
-`d1a041ed8497eb8113b616faf87b2702fb5b80c5` with matching package/lock versions and
-a dated changelog. SDK 0.6.0 adds keyword facets, match-all and facet-only queries,
-and all 16 text analyzers. Read-only defaults and explicit write opt-in remain.
-See `docs/validation/2026-09-29-0.1.1.md` in the reviewed release source for the
-candidate validation record.
+[PR #11](https://github.com/lambdadb/lambdadb-mcp/pull/11) merged SDK 0.7.0,
+49 fixed text analyzer presets and optional per-query managed reranking into
+develop at `99896e0279fa7610358e9abafc032dd507b10f40`. The
+[develop workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37189420462)
+completed and published `0.1.2-dev.9`. Registry metadata matches that commit and
+pins SDK 0.7.0; a downloaded tarball was integrity-checked and passed clean
+consumer stdio contracts. As verified on 2026-10-04, `latest` remains `0.1.1`.
 
-Review the release PR into **main using a merge commit** to preserve ancestry.
-Preparation does not publish 0.1.1. After the main candidate is verified and
-publication is authorized, tag that main commit `v0.1.1` and publish a non-prerelease
-GitHub Release. The existing workflow validates, packs, tests, and publishes its
-exact tarball to npm `latest` with OIDC. Verify version, gitHead, integrity,
-provenance, and installed behavior before announcing availability.
+`release/0.1.2` prepares stable package/lock versions and a dated changelog for
+review into main. Source, tests, scripts and CI match the merged develop tree.
+Candidate validation is recorded in `docs/validation/2026-10-04-0.1.2.md`.
+Do not treat this preparation as a published stable release. Merge into main with
+a merge commit to retain ancestry, then obtain separate authorization to tag the
+verified main commit as `v0.1.2` and publish its GitHub Release. The release
+workflow tests its exact publication artifact before publishing to `latest`.
+After verification, synchronize main into develop through a PR with the next
+`0.1.3-dev.1` base; do not put stable version metadata on develop.
 
-After publication, synchronize main back into develop through a PR with the next
-base `0.1.2-dev.1`. Do not merge stable version metadata directly into develop.
+Both live suites require explicit designation of a development project. Reranking
+also requires managed inference opt-in; no Jev API key is required. Live contract
+checks do not establish production deployment, search quality, load/failure
+coverage or billing readiness. Backend feature/model availability remains required.
+
+## Current stable release: 0.1.1 (2026-09-29 KST)
+
+[v0.1.1](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.1) tags main
+commit `40a8afc25bb93fb14d03d23e3ab38aa1924cf060`, which merged the reviewed release
+PR with preserved ancestry. The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/36557646939)
+passed Node 22.14.0 / 22 / 24 validation and published the tested artifact with
+OIDC and provenance. Registry snapshot: `latest=0.1.1`, `dev=0.1.1-dev.7`.
+SDK 0.6.0 adds keyword facets, match-all and facet-only queries, and all 16 text
+analyzers. Read-only defaults and explicit write opt-in remain.
+
+See `docs/validation/2026-09-29-0.1.1.md` in this source for separate candidate,
+development-service, and published-package evidence. Do not repeat the 0.1.1
+publication or move its tag.
+
+The 0.1.1 synchronization is complete: main was brought back into develop with
+the `0.1.2-dev.1` base through PR #10. Eligible develop merges publish dev versions
+while leaving `latest` on 0.1.1 until an explicitly published stable release.
 Facets need a supporting server and newly built keyword indexes; this release
 does not migrate existing Collections or indexes.
 
-## Status and policy
+## Historical bootstrap and 0.1.0 status
 
 As verified on **2026-09-20 (KST)**:
 

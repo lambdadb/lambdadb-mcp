@@ -136,14 +136,20 @@ test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
   assert.deepEqual(h.requests[0].body, input);
 });
 
-test("all 16 analyzers reach collection creation without altering analyzer lists", async (t) => {
+test("all 49 analyzers reach collection creation without altering analyzer lists", async (t) => {
   const h = await harness(t, { write: true, respond: () => ({ status: 201, body: { collection: created } }) });
   const analyzers = ["standard", "english", "korean", "japanese", "chinese", "cjk", "arabic", "french",
-    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish"];
+    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish",
+    "armenian", "basque", "bengali", "brazilian", "bulgarian", "catalan", "czech", "danish", "dutch",
+    "estonian", "finnish", "galician", "greek", "hungarian", "irish", "latvian", "lithuanian", "norwegian",
+    "persian", "romanian", "serbian", "sorani", "swedish", "thai", "simple", "whitespace", "stop", "keyword",
+    "pattern", "fingerprint", "nepali", "tamil", "telugu"];
   const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection").inputSchema;
   const validate = new AjvJsonSchemaValidator().getValidator(schema);
-  for (const names of [...analyzers.map(name => [name]), analyzers, [], ["chinese", "chinese"]]) {
-    const input = { collectionName: "items", indexConfigs: { title: { type: "text", analyzers: names } } };
+  assert.equal(analyzers.length, 49);
+  for (const name of analyzers) assert.ok((await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection").description.includes(name));
+  for (const names of [undefined, ...analyzers.map(name => [name]), analyzers, [], ["chinese", "chinese"]]) {
+    const input = { collectionName: "items", indexConfigs: { title: { type: "text", ...(names === undefined ? {} : { analyzers: names }) } } };
     assert.equal(validate(input).valid, true);
     data(await h.call("create_collection", input));
     assert.deepEqual(h.requests.at(-1).body, input);
@@ -152,6 +158,9 @@ test("all 16 analyzers reach collection creation without altering analyzer lists
   assert.equal((await h.call("create_collection", {
     collectionName: "items", indexConfigs: { title: { type: "text", analyzers: ["unknown"] } }
   })).isError, true);
+  for (const analyzers of [["English"], ["KEYWORD"]]) {
+    assert.equal((await h.call("create_collection", { collectionName: "items", indexConfigs: { title: { type: "text", analyzers } } })).isError, true);
+  }
   assert.equal(h.requests.length, accepted);
 });
 
@@ -378,4 +387,93 @@ test("SDK authentication failures return MCP tool errors and leave the server us
   assert.match(result.content[0].text, /denied|unauthorized|authentication/i);
   assert.ok(!JSON.stringify(result).includes("test-secret"));
   assert.equal((await h.client.listTools()).tools.length, 5);
+});
+
+const rerank = { provider: "typesafe", model: "jev-1.13.0", queryText: "  Restore a collection  ", fields: ["title", "metadata.body"] };
+
+test("rerank schema and HTTP preserve omission, nulls, text, criteria order and distinct sizes", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs: [], total: 0, took: 1, isDocsInline: true } }) });
+  const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_query_collection").inputSchema;
+  const validate = new AjvJsonSchemaValidator().getValidator(schema);
+  for (const input of [
+    { rerank }, { ...query, rerank, sort: [] }, { ...query, rerank, size: 0, facets: { category: {} } },
+    { ...query, rerank: { ...rerank, fields: ["title", "title"] } },
+    { ...query, rerank: { ...rerank, criteria: ["same", "same"] } },
+    { ...query, rerank: { ...rerank, weights: [] } }
+  ]) assert.equal(validate({ collectionName: "items", ...input }).valid, false, JSON.stringify(input));
+  for (const options of [{}, { rerank: null }, { rerank }, { rerank: { ...rerank, candidateSize: null, onFailure: null, criteria: null } },
+    { rerank: { ...rerank, candidateSize: 50, onFailure: "returnOriginal", criteria: [" Unrelated. ", "한국어 relevant answer."] } }]) {
+    const input = { size: 5, query: { knn: { field: "embedding", vector: [1, 0, 0], k: 20 } }, ...options };
+    assert.equal(validate({ collectionName: "items", ...input }).valid, true);
+    data(await h.call("query_collection", { collectionName: "items", ...input }));
+    assert.deepEqual(h.requests.at(-1).body, JSON.parse(queryCollectionRequestBodyToJSON(input)));
+    assert.deepEqual(h.requests.at(-1).body.rerank, options.rerank);
+    assert.equal(Object.hasOwn(h.requests.at(-1).body, "rerank"), Object.hasOwn(options, "rerank"));
+    assert.equal(h.requests.at(-1).body.query.knn.k, 20);
+  }
+  data(await h.call("query_collection", { collectionName: "items", size: 0, facets: { category: {} }, rerank: null }));
+  assert.equal(h.requests.at(-1).body.rerank, null);
+  for (const size of [1, 100]) {
+    const input = { ...query, size, rerank: { ...rerank, candidateSize: size }, facets: { category: {} },
+      ref: { kind: "branch", name: "dev" }, consistentRead: true, fields: { include: ["title"] } };
+    data(await h.call("query_collection", { collectionName: "items", ...input }));
+    assert.deepEqual(h.requests.at(-1).body, JSON.parse(queryCollectionRequestBodyToJSON(input)));
+  }
+});
+
+test("invalid reranking fails before HTTP, including UTF-8 limits and scoring restrictions", async (t) => {
+  const h = await harness(t, { write: true });
+  const invalidConfigs = [
+    { provider: "jev" }, { model: "other" }, { queryText: "\u3000" }, { queryText: "한".repeat(2731) },
+    { fields: [] }, { fields: Array(9).fill("title") }, { fields: ["title", "title"] }, { fields: ["metadata..title"] },
+    { candidateSize: 0 }, { candidateSize: 101 }, { candidateSize: 1.5 }, { candidateSize: 9 },
+    { onFailure: "ignore" }, { criteria: [] }, { criteria: ["same", "same"] }, { criteria: ["\u3000", "answer"] },
+    { criteria: ["한".repeat(683), "answer"] }, { criteria: Array.from({ length: 5 }, (_, i) => `${i}${"한".repeat(600)}`) },
+    { criteria: Array.from({ length: 11 }, (_, i) => `${i}`) },
+    ...["weights", "thresholds", "rubricVersion", "rerankScore", "apiKey"].map(key => ({ [key]: "unsupported" }))
+  ];
+  for (const patch of invalidConfigs) {
+    assert.equal((await h.call("query_collection", { collectionName: "items", ...query, rerank: { ...rerank, ...patch } })).isError, true, JSON.stringify(patch));
+  }
+  for (const input of [
+    { rerank }, { ...query, size: 0, facets: { category: {} }, rerank }, { ...query, sort: [], rerank },
+    { query: { bool: [{ occur: "FILTER", queryString: { query: "title:test" } }] }, rerank },
+    { ...query, rerank, ref: { kind: "tag", name: "release" }, consistentRead: true }
+  ]) assert.equal((await h.call("query_collection", { collectionName: "items", ...input })).isError, true);
+  assert.equal((await h.call("create_collection", { collectionName: "items", indexConfigs: collection.indexConfigs, rerank })).isError, true);
+  assert.equal(h.requests.length, 0);
+});
+
+test("rerank envelopes preserve zero, precision, server order and metadata inline and through docsUrl", async (t) => {
+  const rankedDocs = [
+    { collection: "items", doc: { id: "second", score: "user data" }, score: 0.80000002, retrievalScore: 0 },
+    { collection: "items", doc: { id: "first" }, score: 0.80000002, retrievalScore: 3.251234567 },
+    { collection: "items", doc: { id: "zero" }, score: 0, retrievalScore: -0.125 }
+  ];
+  const baseMetadata = { provider: "typesafe", model: "jev-1.13.0", candidateCount: 3, scoredCount: 3, took: 190 };
+  const responses = [
+    { docs: rankedDocs, maxScore: 0.80000002, rerank: { ...baseMetadata, status: "applied", resolvedModel: "jev-1.13.0", criteriaVersion: "custom" } },
+    { docs: [rankedDocs[2]], maxScore: 0, rerank: { ...baseMetadata, candidateCount: 1, scoredCount: 1, status: "applied", criteriaVersion: "default-relevance-v1" } },
+    { docs: [], rerank: { ...baseMetadata, candidateCount: 0, scoredCount: 0, status: "skipped", reason: "noCandidates" } },
+    { docs, maxScore: 1, rerank: { ...baseMetadata, scoredCount: 0, status: "fallback", reason: "timeout" } },
+    { docs, maxScore: 1 }
+  ];
+  for (const response of responses) for (const download of [false, true]) {
+    const wire = { took: 210, total: response.docs.length, isDocsInline: true, ...response };
+    const h = await harness(t, { respond: req => req.url.pathname === "/download" ? { body: response.docs }
+      : { body: download ? { ...wire, docs: [], isDocsInline: false, docsUrl: `${req.url.origin}/download` } : wire } });
+    const result = data(await h.call("query_collection", { collectionName: "items", ...query, ...(response.rerank ? { rerank } : {}) }));
+    assert.deepEqual(result, { ...wire, ...(download ? { docsUrl: `${h.baseUrl}/download` } : {}) });
+    if (download) assert.equal(h.requests[1].headers["x-api-key"], undefined);
+  }
+});
+
+test("returnOriginal does not hide service or hydration errors", async (t) => {
+  for (const download of [false, true]) {
+    const h = await harness(t, { respond: req => !download || req.url.pathname === "/download"
+      ? { status: 400, body: { message: "Invalid candidate text" } }
+      : { body: { docs: [], total: 1, took: 1, isDocsInline: false, docsUrl: `${req.url.origin}/download` } } });
+    assert.equal((await h.call("query_collection", { collectionName: "items", ...query, rerank: { ...rerank, onFailure: "returnOriginal" } })).isError, true);
+    assert.equal(h.requests.length, download ? 2 : 1);
+  }
 });
