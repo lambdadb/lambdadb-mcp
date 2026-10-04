@@ -101,9 +101,8 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.6.0`, checked against
-the published package and [v0.6.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.6.0)
-at [`491d01e`](https://github.com/lambdadb/lambdadb-typescript-client/commit/491d01e0eb54bd135823fab79cbe32396ec03691).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.7.0`, checked against
+the published package and [v0.7.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.7.0).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -173,6 +172,69 @@ This MCP update does not migrate existing Collections or indexes. Partial update
 segment merging, and old Tags do not upgrade old indexes. If migration is needed,
 plan and authorize reinsertion into a new Collection separately.
 
+### Optional managed reranking
+
+`lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
+preserves existing searches. Collection creation has no rerank setting.
+LambdaDB manages provider credentials; only the existing project API key is needed.
+See the [managed reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+
+```json
+{
+  "collectionName": "articles",
+  "size": 10,
+  "query": { "knn": { "field": "bodyEmbedding", "queryText": "Restore a collection", "k": 50 } },
+  "fields": { "include": ["id", "title"] },
+  "rerank": {
+    "provider": "typesafe",
+    "model": "jev-1.13.0",
+    "queryText": "Restore a collection",
+    "fields": ["title", "body"],
+    "candidateSize": 50,
+    "onFailure": "error"
+  }
+}
+```
+
+Provider/model are fixed. `queryText` is required nonblank text, at most 8 KiB
+UTF-8, even with raw vectors. Rerank `fields` selects 1–8 unique stored scalar
+text paths in input order, independently of returned document projection.
+Optional `criteria` replaces the default with 2–10 distinct nonblank descriptions
+ordered from lowest to highest relevance (2 KiB each, 8 KiB total UTF-8).
+Omitted/null criteria uses defaults; text, order, nulls and omission are preserved.
+
+Final `size`, vector-leg `knn.k`, and merged `candidateSize` are separate.
+Require `1 <= size <= candidateSize <= 100`; omitted/null candidateSize defaults
+on the server to `max(50, size)`, with final size defaulting to 10. MCP never
+increases `k`. Reranking requires a scoring retrieval query, forbids `sort`,
+match-all and filter-only Boolean requests, and preserves ref/consistentRead
+restrictions. It does not enable vector/hybrid facets; supported lexical facets
+still count all matches. Field types, candidate text and model availability
+remain server validations.
+
+Results retain server order, precision and zero. Applied envelope `score` is the
+final evaluation score in [0,1], not a probability; envelope `retrievalScore`
+retains the search score. Top-level `rerank` retains status (`applied`, `skipped`,
+`fallback`), provider/model, optional resolvedModel, counts, stage took, optional
+criteriaVersion and reason. Applied criteriaVersion is `default-relevance-v1`
+or `custom`; `custom` is not a unique rubric identity. `maxScore` retains zero;
+empty results omit it and report skipped/noCandidates with zero counts.
+Without reranking, rerank metadata and retrievalScore are absent. Metadata and
+scores survive `docsUrl` downloads.
+
+Omitted/null `onFailure` defaults to `error`. `returnOriginal` applies only to
+provider timeout, rateLimit, unavailable, invalidResponse and credentials failures.
+Fallback retains retrieval order/scores for the first size documents, discards
+partial evaluation scores and omits retrievalScore/criteriaVersion. Invalid
+input/candidates, disabled models, authorization, retrieval/hydration/ref, quota
+and capacity failures remain errors; cancellation or an exhausted deadline does
+not trigger fallback. A hybrid fallback can differ from a separate query with
+a smaller candidate cap. No extra client fallback is implemented.
+
+SDK publication and local fixtures do not establish deployment to an endpoint,
+search quality, load/failure coverage or billing readiness. Backend feature/model
+availability and operational verification remain separate dependencies.
+
 ### Text analyzers in collection creation
 
 With write tools explicitly enabled, `lambdadb_create_collection` accepts:
@@ -190,11 +252,28 @@ With write tools explicitly enabled, `lambdadb_create_collection` accepts:
 
 Supported lowercase names: `standard`, `english`, `korean`, `japanese`, `chinese`,
 `cjk`, `arabic`, `french`, `german`, `hindi`, `indonesian`, `italian`, `portuguese`,
-`russian`, `spanish`, `turkish`. Omitting `analyzers` uses the server default
+`russian`, `spanish`, `turkish`, `armenian`, `basque`, `bengali`, `brazilian`,
+`bulgarian`, `catalan`, `czech`, `danish`, `dutch`, `estonian`, `finnish`, `galician`,
+`greek`, `hungarian`, `irish`, `latvian`, `lithuanian`, `norwegian`, `persian`,
+`romanian`, `serbian`, `sorani`, `swedish`, `thai`, `simple`, `whitespace`, `stop`,
+`keyword`, `pattern`, `fingerprint`, `nepali`, `tamil`, `telugu` (49 total).
+Omitting `analyzers` uses the server default
 `["standard"]`; an empty list is passed through and does not select that default.
 Analyzers run independently without automatic language detection. Lists are sent
 unchanged; avoid duplicate names, which the server rejects. Index configuration
 validation remains in the SDK. Write tools remain disabled by default.
+
+These are fixed presets with backend default settings; custom pipelines/options
+are unsupported. The `keyword` analyzer keeps text in one token and is distinct
+from the `keyword` field type used for sorting/facets. Nepali, Tamil and Telugu
+are Lucene extensions, not common Elasticsearch/OpenSearch support. New presets
+require a supporting backend deployment. See the [analyzer contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/models/analyzer.md).
+
+This repository uses the native SDK only and has no Qdrant payload-schema mapping.
+The SDK's [Qdrant adapter](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/compatibility/qdrant.md)
+now rejects extra schema options with `UnsupportedQdrantFeatureError`. Its mapping
+remains type-only; text omits analyzers for the standard default. Migration callers
+must reject or explicitly resolve unsupported options rather than discard them.
 
 ## Tests
 
@@ -211,7 +290,9 @@ HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
 arrays/errors and local environment-file loading. Facet tests validate the published
 MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-only,
 document+facet, omitted/null/default bucket options, boundaries, invalid requests,
-and all 16 analyzers. They do not require credentials
+and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,
+local bounds/UTF-8 rejection, score envelopes, skipped/fallback results and
+metadata downloads. They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real
 stdio, checking version identity, config errors, stdout and process termination.
@@ -229,7 +310,7 @@ LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run
 
 The live test creates one uniquely named temporary collection, checks real HTTP
 201/202 responses, metadata, pagination, filters, sorting, and Branch/Tag/Alias
-reads. It also checks all 16 analyzers in collection metadata, match-all, facet-only
+reads. It also checks all 49 analyzers in collection metadata, match-all, facet-only
 and document+facet results, default/null bucket size, keyword arrays, dotted paths,
 and facet preservation across refs and `docsUrl` downloads. The designated server
 must support these features. It writes two 3 MiB documents to force actual `docsUrl` array downloads
@@ -238,6 +319,27 @@ isolation. It allows up to five minutes for committed visibility, deletes its
 temporary collection in cleanup, and verifies that the collection is absent.
 Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
 operations are not exposed as MCP tools. This test is separate from `npm run check`.
+
+Managed reranking has a separate live suite because it requires an enabled
+`typesafe` / `jev-1.13.0` model and can incur inference cost. Use the same explicitly
+authorized development project and write opt-in, with an additional inference opt-in:
+
+```bash
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:rerank
+```
+
+It creates one temporary collection and two synthetic documents. It verifies
+omitted/null retrieval behavior, applied default and custom criteria, final size
+versus candidate count, envelope evaluation/retrieval scores, inline and actual
+`docsUrl` order/precision/metadata preservation, download credential isolation,
+and empty `skipped` results. Only short stored text is sent for evaluation; the
+large synthetic payload forces document offload without enlarging model input.
+Cleanup deletes the collection and verifies its absence even after a failed check.
+It does not assert fixed model scores or relevance rankings, and a fallback result
+does not pass as applied inference. Provider failures remain fixture tests; this
+suite does not deliberately induce failures or verify search quality, load,
+production deployment or billing readiness. Both live suites are outside default
+checks and credential-free CI.
 
 If the environment file is outside the worktree:
 

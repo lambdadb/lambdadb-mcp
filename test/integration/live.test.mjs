@@ -86,7 +86,11 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
   const query = { query: { queryString: { query: "*:*" } }, size: 2 };
   const ids = ["offload-1", "offload-2"];
   const analyzers = ["standard", "english", "korean", "japanese", "chinese", "cjk", "arabic", "french",
-    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish"];
+    "german", "hindi", "indonesian", "italian", "portuguese", "russian", "spanish", "turkish",
+    "armenian", "basque", "bengali", "brazilian", "bulgarian", "catalan", "czech", "danish", "dutch",
+    "estonian", "finnish", "galician", "greek", "hungarian", "irish", "latvian", "lithuanian", "norwegian",
+    "persian", "romanian", "serbian", "sorani", "swedish", "thai", "simple", "whitespace", "stop", "keyword",
+    "pattern", "fingerprint", "nepali", "tamil", "telugu"];
   const categories = ["shared", "shared", ...Array.from({ length: 12 }, (_, i) => `bucket-${i}`)];
   const markerFacets = { marker: { buckets: [{ value: "offload", count: 2 }] } };
   const payload = "x".repeat(3 * 1024 * 1024);
@@ -167,7 +171,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
       assert.equal(invalid.isError, true);
       assert.equal(trace.length, 0);
     }
-    console.info("[live] 16 analyzers, match-all, facet-only, document+facet, default/null/explicit bucket size, arrays, dotted paths, invalid requests: PASS");
+    console.info("[live] 49 analyzers, match-all, facet-only, document+facet, default/null/explicit bucket size, arrays, dotted paths, invalid requests: PASS");
 
     for (const [name, args] of [
       ["query_collection", { ...query, facets: { marker: {} } }], ["fetch_docs", { ids }],
