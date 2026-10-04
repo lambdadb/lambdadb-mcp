@@ -3,6 +3,7 @@ import type {
   DeleteDocsInput,
   UpsertDocsInput
 } from "@functional-systems/lambdadb";
+import { Analyzer } from "@functional-systems/lambdadb/models";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -16,7 +17,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_create_collection",
     {
       title: "Create Collection",
-      description: "Create a new collection in the configured project. Text index analyzers: standard, english, korean, japanese, chinese, cjk, arabic, french, german, hindi, indonesian, italian, portuguese, russian, spanish, turkish. Keyword indexes built on a supporting server support facets.",
+      description: `Create a new collection in the configured project. Fixed lowercase text analyzer presets: ${Object.values(Analyzer).join(", ")}. Omitted analyzers uses standard; custom pipelines/options are unsupported. The keyword text analyzer is distinct from the keyword field type. Keyword indexes built on a supporting server support facets.`,
       annotations: {
         openWorldHint: false
       },
@@ -123,4 +124,3 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     }
   );
 }
-

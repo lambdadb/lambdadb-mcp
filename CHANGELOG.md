@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Pin the LambdaDB TypeScript SDK to 0.7.0 and expose all 49 fixed lowercase
+  analyzer presets in collection-tool guidance; preserve analyzer serialization.
+- Add optional per-query managed reranking to the MCP schema and SDK request path,
+  preserving omission/null, distinct sizes, custom criteria, envelope scores and
+  status metadata, including document downloads. Retain SDK validation and errors.
+- Extend local and installed-package contracts for analyzer expansion and reranking;
+  update the opt-in live analyzer check without claiming live feature verification.
+- Native SDK usage is unchanged; no Qdrant mapping exists in this server. Supporting
+  backend deployment/model availability remains required. No package is published
+  and existing MCP installations require a separately released update.
+
 ## [0.1.1] - 2026-09-29
 
 - Pin the LambdaDB TypeScript SDK to 0.6.0, including all 16 text analyzers.
