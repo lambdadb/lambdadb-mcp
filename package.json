@@ -11,6 +11,7 @@
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
     "check": "npm run check:version && npm run typecheck && npm test",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:live:rerank": "npm run build && bash ./scripts/with-env.sh --test test/integration/rerank-live.test.mjs",
     "test:live": "npm run build && bash ./scripts/with-env.sh --test test/integration/live.test.mjs",
     "dev": "tsx watch src/index.ts",
     "inspect": "bash ./scripts/inspect.sh",

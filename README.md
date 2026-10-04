@@ -320,6 +320,27 @@ temporary collection in cleanup, and verifies that the collection is absent.
 Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
 operations are not exposed as MCP tools. This test is separate from `npm run check`.
 
+Managed reranking has a separate live suite because it requires an enabled
+`typesafe` / `jev-1.13.0` model and can incur inference cost. Use the same explicitly
+authorized development project and write opt-in, with an additional inference opt-in:
+
+```bash
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:rerank
+```
+
+It creates one temporary collection and two synthetic documents. It verifies
+omitted/null retrieval behavior, applied default and custom criteria, final size
+versus candidate count, envelope evaluation/retrieval scores, inline and actual
+`docsUrl` order/precision/metadata preservation, download credential isolation,
+and empty `skipped` results. Only short stored text is sent for evaluation; the
+large synthetic payload forces document offload without enlarging model input.
+Cleanup deletes the collection and verifies its absence even after a failed check.
+It does not assert fixed model scores or relevance rankings, and a fallback result
+does not pass as applied inference. Provider failures remain fixture tests; this
+suite does not deliberately induce failures or verify search quality, load,
+production deployment or billing readiness. Both live suites are outside default
+checks and credential-free CI.
+
 If the environment file is outside the worktree:
 
 ```bash
