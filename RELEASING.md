@@ -1,6 +1,35 @@
 # Releasing LambdaDB MCP
 
-## Current stable release: 0.1.1 (2026-09-29 KST)
+## Current stable release: 0.1.2 (2026-10-04 KST)
+
+[v0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) tags main
+commit `627ffbb3161bc3d41d5f2a5f2a0f5289fd73de3f`, which merged
+[release PR #12](https://github.com/lambdadb/lambdadb-mcp/pull/12) with preserved
+ancestry. The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37191117220)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.2`, `dev=0.1.2-dev.9`.
+A downloaded stable tarball matched registry integrity, source commit and SDK
+0.7.0 and passed 31 clean-consumer stdio tests. Provenance statement repository,
+workflow, tag, source commit and subject digest matched the publication.
+
+SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query managed
+reranking. Read-only defaults and explicit write opt-in remain. See
+`docs/validation/2026-10-04-0.1.2.md` for separate candidate, authorized
+source-build live, published dev and published stable evidence. Do not repeat the
+0.1.2 publication or move its tag.
+
+This synchronization brings main back into develop with the next base
+`0.1.3-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges may publish a new dev version while `latest` stays on
+0.1.2. Do not merge stable version metadata directly into develop.
+
+Both live suites require explicit designation of a development project. Reranking
+also requires managed inference opt-in; no Jev API key is required. Live contract
+checks do not establish production deployment, search quality, load/failure
+coverage or billing readiness. Supporting backend deployment/model availability
+and keyword-index requirements remain; existing collections/indexes are not migrated.
+
+## Previous stable release: 0.1.1 (2026-09-29 KST)
 
 [v0.1.1](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.1) tags main
 commit `40a8afc25bb93fb14d03d23e3ab38aa1924cf060`, which merged the reviewed release
@@ -14,10 +43,9 @@ See `docs/validation/2026-09-29-0.1.1.md` in this source for separate candidate,
 development-service, and published-package evidence. Do not repeat the 0.1.1
 publication or move its tag.
 
-This synchronization brings main back into develop with the next base
-`0.1.2-dev.1`. Review it into develop using a merge commit to preserve ancestry.
-Eligible develop merges may publish a new dev version while `latest` stays on
-0.1.1. Do not merge stable version metadata directly into develop.
+The 0.1.1 synchronization is complete: main was brought back into develop with
+the `0.1.2-dev.1` base through PR #10. Eligible develop merges publish dev versions
+while leaving `latest` on 0.1.1 until an explicitly published stable release.
 Facets need a supporting server and newly built keyword indexes; this release
 does not migrate existing Collections or indexes.
 
