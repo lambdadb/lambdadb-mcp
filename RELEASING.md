@@ -1,31 +1,35 @@
 # Releasing LambdaDB MCP
 
-## Prepared stable candidate: 0.1.2 (2026-10-04 KST)
+## Current stable release: 0.1.2 (2026-10-04 KST)
 
-[PR #11](https://github.com/lambdadb/lambdadb-mcp/pull/11) merged SDK 0.7.0,
-49 fixed text analyzer presets and optional per-query managed reranking into
-develop at `99896e0279fa7610358e9abafc032dd507b10f40`. The
-[develop workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37189420462)
-completed and published `0.1.2-dev.9`. Registry metadata matches that commit and
-pins SDK 0.7.0; a downloaded tarball was integrity-checked and passed clean
-consumer stdio contracts. As verified on 2026-10-04, `latest` remains `0.1.1`.
+[v0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) tags main
+commit `627ffbb3161bc3d41d5f2a5f2a0f5289fd73de3f`, which merged
+[release PR #12](https://github.com/lambdadb/lambdadb-mcp/pull/12) with preserved
+ancestry. The [release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37191117220)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.2`, `dev=0.1.2-dev.9`.
+A downloaded stable tarball matched registry integrity, source commit and SDK
+0.7.0 and passed 31 clean-consumer stdio tests. Provenance statement repository,
+workflow, tag, source commit and subject digest matched the publication.
 
-`release/0.1.2` prepares stable package/lock versions and a dated changelog for
-review into main. Source, tests, scripts and CI match the merged develop tree.
-Candidate validation is recorded in `docs/validation/2026-10-04-0.1.2.md`.
-Do not treat this preparation as a published stable release. Merge into main with
-a merge commit to retain ancestry, then obtain separate authorization to tag the
-verified main commit as `v0.1.2` and publish its GitHub Release. The release
-workflow tests its exact publication artifact before publishing to `latest`.
-After verification, synchronize main into develop through a PR with the next
-`0.1.3-dev.1` base; do not put stable version metadata on develop.
+SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query managed
+reranking. Read-only defaults and explicit write opt-in remain. See
+`docs/validation/2026-10-04-0.1.2.md` for separate candidate, authorized
+source-build live, published dev and published stable evidence. Do not repeat the
+0.1.2 publication or move its tag.
+
+This synchronization brings main back into develop with the next base
+`0.1.3-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges may publish a new dev version while `latest` stays on
+0.1.2. Do not merge stable version metadata directly into develop.
 
 Both live suites require explicit designation of a development project. Reranking
 also requires managed inference opt-in; no Jev API key is required. Live contract
 checks do not establish production deployment, search quality, load/failure
-coverage or billing readiness. Backend feature/model availability remains required.
+coverage or billing readiness. Supporting backend deployment/model availability
+and keyword-index requirements remain; existing collections/indexes are not migrated.
 
-## Current stable release: 0.1.1 (2026-09-29 KST)
+## Previous stable release: 0.1.1 (2026-09-29 KST)
 
 [v0.1.1](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.1) tags main
 commit `40a8afc25bb93fb14d03d23e3ab38aa1924cf060`, which merged the reviewed release
