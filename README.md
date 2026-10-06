@@ -14,23 +14,24 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-The stable package is available on npm. As verified on 2026-10-04 (KST),
-`latest` resolves to `0.1.1` and `dev` to `0.1.2-dev.9`. Use an exact version for
+The stable package is available on npm. As verified on 2026-10-06 (KST),
+`latest` resolves to `0.1.2` and `dev` to `0.1.3-dev.11`. Use an exact version for
 reproducibility or the default stable channel for initial setup. See
 [release status and policy](RELEASING.md).
 
-[MCP 0.1.1](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.1) remains the
-published stable release with SDK 0.6.0. Published `0.1.2-dev.9` contains SDK 0.7.0,
-49 fixed text analyzer presets and optional managed reranking. This source prepares
-stable `0.1.2`; it has not yet been published. To preview the published changes,
-use `npx --yes @functional-systems/lambdadb-mcp@0.1.2-dev.9`.
+[MCP 0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) is the
+published stable release with SDK 0.7.0, 49 fixed text analyzer presets and optional
+managed reranking. Published `0.1.3-dev.11` contains SDK 0.8.0, Bayesian hybrid
+search and native embedding configuration. This source prepares stable `0.1.3`;
+it has not yet been published. To preview these changes, use
+`npx --yes @functional-systems/lambdadb-mcp@0.1.3-dev.11`.
 Existing installations need an MCP version containing these changes; upgrading
 the SDK separately does not update them.
 
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.1.1
+npx --yes @functional-systems/lambdadb-mcp@0.1.2
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
@@ -103,8 +104,8 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.7.0`, checked against
-the published package and [v0.7.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.7.0).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.0`, checked against
+the published package and [v0.8.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.0).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -174,6 +175,114 @@ This MCP update does not migrate existing Collections or indexes. Partial update
 segment merging, and old Tags do not upgrade old indexes. If migration is needed,
 plan and authorize reinsertion into a new Collection separately.
 
+### Bayesian hybrid search
+
+Arguments for `lambdadb_query_collection` using an existing two-dimensional
+caller-provided vector field `embedding` and text field `body`:
+
+```json
+{
+  "collectionName": "articles",
+  "query": {
+    "bayesian": [
+      { "queryString": { "query": "body:restore" } },
+      { "knn": { "field": "embedding", "queryVector": [1, 0], "k": 30 } }
+    ]
+  },
+  "size": 10,
+  "candidateSize": 30
+}
+```
+
+Bayesian requires exactly two signals. Boolean subqueries may combine clauses
+within a signal, but explicit boosts (even `1`) on either signal or its Boolean
+descendants and nested rank-fusion queries are unsupported. Do not supply fusion
+weights. Without rerank, top-level `candidateSize` is required and must satisfy
+`1 <= size <= candidateSize <= 100`; omitted `size` retains the server default of
+10. The budget is per signal, independent of final output size and `knn.k`.
+
+With rerank, omit top-level `candidateSize` and use `rerank.candidateSize`:
+
+```json
+{
+  "collectionName": "articles",
+  "query": {
+    "bayesian": [
+      { "queryString": { "query": "body:restore" } },
+      { "knn": { "field": "embedding", "queryVector": [1, 0], "k": 30 } }
+    ]
+  },
+  "size": 10,
+  "rerank": {
+    "provider": "typesafe",
+    "model": "jev-1.13.0",
+    "queryText": "How do I restore a previous version?",
+    "fields": ["body"],
+    "candidateSize": 30
+  }
+}
+```
+
+Omitted/null `rerank.candidateSize` retains `max(50, size)`; omitted/null `rerank`
+requires the top-level Bayesian budget. Ordinary text/KNN/RRF/Min-Max/L2 queries
+must omit top-level `candidateSize`. MCP preserves free-form queries, passes
+integer candidate budgets unchanged, and leaves Bayesian structure, bounds and
+cross-field validation to the server, retaining service errors. No query defaults,
+weights or candidate counts are inserted by MCP. Bayesian scores are heuristic
+fusion scores; applied reranking preserves them in `retrievalScore` and retains
+all rerank status metadata, including through SDK-managed `docsUrl` downloads.
+
+The [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
+and native embedding additions below are pinned to backend
+`9072a1bc8925954369a887f558f1eaf387b7ea0e`. A source pin does not establish deployment
+in another environment. Existing fusion methods and tool names remain unchanged.
+
+### Native embedding configuration
+
+With write tools enabled, call `lambdadb_create_collection` with:
+
+```json
+{
+  "collectionName": "native-articles",
+  "indexConfigs": {
+    "body": { "type": "text" },
+    "embedding": {
+      "type": "vector",
+      "embedding": {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "sourceField": "body",
+        "dimensions": 512,
+        "similarity": "cosine"
+      }
+    }
+  }
+}
+```
+
+Then call `lambdadb_upsert_docs` with
+`{"collectionName":"native-articles","docs":[{"id":"one","body":"Restore a saved version."}]}`.
+The source must be a text field; omit the generated vector from documents.
+Use `knn.queryText` instead of `queryVector` for this field, including in either
+Bayesian example above. For example, call `lambdadb_query_collection` with:
+
+```json
+{
+  "collectionName": "native-articles",
+  "query": { "knn": { "field": "embedding", "queryText": "Restore a version", "k": 30 } },
+  "size": 10
+}
+```
+
+Native dimensions and similarity are optional and belong inside `embedding`.
+MCP does not infer a flag, provider, model or native dimensions/similarity default.
+The SDK rejects `managedEmbedding: false` with `embedding`, and native embedding
+with top-level dimensions/similarity. Caller-provided vectors continue to use
+top-level dimensions/similarity. Free-form nested object configurations retain
+server validation. For older servers, explicitly add `managedEmbedding: true`
+beside `type`; it is preserved. Normalized collection metadata may still contain
+that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
+
 ### Optional managed reranking
 
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
@@ -205,7 +314,7 @@ Optional `criteria` replaces the default with 2–10 distinct nonblank descripti
 ordered from lowest to highest relevance (2 KiB each, 8 KiB total UTF-8).
 Omitted/null criteria uses defaults; text, order, nulls and omission are preserved.
 
-Final `size`, vector-leg `knn.k`, and merged `candidateSize` are separate.
+Final `size`, vector-leg `knn.k`, and merged `rerank.candidateSize` are separate.
 Require `1 <= size <= candidateSize <= 100`; omitted/null candidateSize defaults
 on the server to `max(50, size)`, with final size defaulting to 10. MCP never
 increases `k`. Reranking requires a scoring retrieval query, forbids `sort`,
@@ -294,7 +403,9 @@ MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-onl
 document+facet, omitted/null/default bucket options, boundaries, invalid requests,
 and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,
 local bounds/UTF-8 rejection, score envelopes, skipped/fallback results and
-metadata downloads. They do not require credentials
+metadata downloads. Bayesian tests cover untouched free-form requests, candidate
+budgets, server errors, native/legacy configurations and contradictory inputs.
+They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real
 stdio, checking version identity, config errors, stdout and process termination.
@@ -340,8 +451,22 @@ Cleanup deletes the collection and verifies its absence even after a failed chec
 It does not assert fixed model scores or relevance rankings, and a fallback result
 does not pass as applied inference. Provider failures remain fixture tests; this
 suite does not deliberately induce failures or verify search quality, load,
-production deployment or billing readiness. Both live suites are outside default
+production deployment or billing readiness. These live suites are outside default
 checks and credential-free CI.
+
+Bayesian/native embedding verification also requires explicit managed inference
+opt-in for OpenAI embeddings and TypeSafe reranking:
+
+```bash
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:bayesian
+```
+
+This suite creates one owned collection with native, legacy and caller-provided
+vector fields. It checks real embedding generation and text queries, Bayesian
+budgets and server rejections, existing fusion methods, applied reranking with
+retrieval scores and actual docsUrl hydration, then deletes and verifies absence.
+These live suites are outside default checks and credential-free CI. Verify the
+target's deployment provenance before running; the source pin alone is insufficient.
 
 If the environment file is outside the worktree:
 
