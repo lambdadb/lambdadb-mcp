@@ -1,27 +1,28 @@
 # Releasing LambdaDB MCP
 
-## Stable candidate: 0.1.3 (2026-10-06 KST)
+## Current stable release: 0.1.3 (2026-10-06 KST)
 
-`release/0.1.3` prepares the SDK 0.8.0 changes merged in
-[PR #14](https://github.com/lambdadb/lambdadb-mcp/pull/14) for review into `main`.
-The implementation matches develop commit
-`bd1ae5547f868991a22c92b5a07849edfcf696fb`; only release metadata and validation
-documentation change. Package and both root lockfile versions are `0.1.3`.
+[v0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) tags main
+commit `159b84aace7d9352cf8e5315bc7f7192e8d65a41`, which merged
+[release PR #15](https://github.com/lambdadb/lambdadb-mcp/pull/15) using an
+explicitly authorized admin merge commit and preserved ancestry. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37458444410)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.3`, `dev=0.1.3-dev.11`.
 
-This candidate adds Bayesian candidate budgets and native embedding configuration
-while preserving existing tool names, free-form inputs, rerank defaults and
-metadata, SDK downloads, and read-only defaults. Older servers still require
-`managedEmbedding: true`. See `docs/validation/2026-10-06-sdk-0.8.0.md` for the
-authorized development-service evidence and `docs/validation/2026-10-06-0.1.3.md`
-for publication, candidate checks and their separate scopes.
+SDK 0.8.0 adds Bayesian candidate budgets and native embedding configuration.
+Existing tool names, free-form inputs, rerank defaults and metadata, SDK downloads,
+and read-only defaults remain. Older servers still require
+`managedEmbedding: true`; Bayesian/native inputs require a supporting deployment.
+See `docs/validation/2026-10-06-0.1.3.md` for separate candidate, source-build live,
+and published-package evidence. Do not repeat publication or move the tag.
 
-Review this candidate into main using a merge commit to preserve ancestry.
-Then obtain authorization for the `v0.1.3` tag and published GitHub Release; no
-tag, stable publication or default promotion is part of candidate preparation.
-After stable publication, synchronize main back to develop with the next
-`0.1.4-dev.1` base. Do not merge stable metadata directly into develop.
+`release/sync-0.1.3` brings main back into develop with the next source base
+`0.1.4-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges may publish new dev versions while `latest` stays on
+0.1.3. Do not merge stable version metadata directly into develop.
 
-## Current stable release: 0.1.2 (2026-10-04 KST)
+## Previous stable release: 0.1.2 (2026-10-04 KST)
 
 [v0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) tags main
 commit `627ffbb3161bc3d41d5f2a5f2a0f5289fd73de3f`, which merged
