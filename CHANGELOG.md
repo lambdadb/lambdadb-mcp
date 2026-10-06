@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.3] - 2026-10-06
+
 - Pin the stable LambdaDB SDK to 0.8.0; expose Bayesian candidate budgets and
   native embedding configuration in MCP guidance while preserving free-form
   queries, SDK/server validation, rerank defaults, errors and response metadata.

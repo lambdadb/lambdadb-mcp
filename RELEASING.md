@@ -1,5 +1,26 @@
 # Releasing LambdaDB MCP
 
+## Stable candidate: 0.1.3 (2026-10-06 KST)
+
+`release/0.1.3` prepares the SDK 0.8.0 changes merged in
+[PR #14](https://github.com/lambdadb/lambdadb-mcp/pull/14) for review into `main`.
+The implementation matches develop commit
+`bd1ae5547f868991a22c92b5a07849edfcf696fb`; only release metadata and validation
+documentation change. Package and both root lockfile versions are `0.1.3`.
+
+This candidate adds Bayesian candidate budgets and native embedding configuration
+while preserving existing tool names, free-form inputs, rerank defaults and
+metadata, SDK downloads, and read-only defaults. Older servers still require
+`managedEmbedding: true`. See `docs/validation/2026-10-06-sdk-0.8.0.md` for the
+authorized development-service evidence and `docs/validation/2026-10-06-0.1.3.md`
+for publication, candidate checks and their separate scopes.
+
+Review this candidate into main using a merge commit to preserve ancestry.
+Then obtain authorization for the `v0.1.3` tag and published GitHub Release; no
+tag, stable publication or default promotion is part of candidate preparation.
+After stable publication, synchronize main back to develop with the next
+`0.1.4-dev.1` base. Do not merge stable metadata directly into develop.
+
 ## Current stable release: 0.1.2 (2026-10-04 KST)
 
 [v0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) tags main
@@ -18,12 +39,12 @@ reranking. Read-only defaults and explicit write opt-in remain. See
 source-build live, published dev and published stable evidence. Do not repeat the
 0.1.2 publication or move its tag.
 
-This synchronization brings main back into develop with the next base
-`0.1.3-dev.1`. Review it into develop using a merge commit to preserve ancestry.
-Eligible develop merges may publish a new dev version while `latest` stays on
-0.1.2. Do not merge stable version metadata directly into develop.
+The 0.1.2 synchronization is complete: PR #13 brought main back into develop
+with the `0.1.3-dev.1` base. Eligible develop merges may publish new dev versions
+while `latest` stays on 0.1.2 until an explicitly authorized stable release.
+Do not merge stable version metadata directly into develop.
 
-Both live suites require explicit designation of a development project. Reranking
+Live suites require explicit designation of a development project. Reranking
 also requires managed inference opt-in; no Jev API key is required. Live contract
 checks do not establish production deployment, search quality, load/failure
 coverage or billing readiness. Supporting backend deployment/model availability
