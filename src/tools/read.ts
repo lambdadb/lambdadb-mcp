@@ -96,7 +96,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Search documents with optional managed reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
+        "Search documents with optional Bayesian hybrid search, managed reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -105,7 +105,13 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         collectionName: nameSchema,
         size: z.number().int().min(0).max(100).optional()
           .describe("Documents to return (1–100), or 0 with nonempty facets."),
-        query: z.record(z.string(), z.any()).optional().describe("Omit for match-all."),
+        // Preserve SDK/server validation and error classification for free-form queries.
+        candidateSize: z.number().int().optional().describe(
+          "Bayesian without rerank requires 1 <= size <= candidateSize <= 100 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
+        ),
+        query: z.record(z.string(), z.any()).optional().describe(
+          "Free-form query; omit for match-all. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
+        ),
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
         ref: readRefSchema.optional(),
@@ -141,6 +147,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     async ({
       collectionName,
       size,
+      candidateSize,
       query,
       facets,
       rerank,
@@ -158,6 +165,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
           facets,
           rerank,
           size,
+          candidateSize,
           ...readOptions(ref, consistentRead),
           includeVectors,
           sort,
