@@ -26,6 +26,9 @@ const created = Object.fromEntries([
 ].map((key) => [key, collection[key]]));
 const docs = [{ collection: "items", doc: { id: "one", title: "Test" }, score: 1 }];
 const query = { query: { queryString: { query: "*:*" } } };
+const lexical = { queryString: { query: "title:restore" } };
+const vector = { knn: { field: "embedding", queryVector: [1, 0], k: 30 } };
+const bayesian = { bayesian: [lexical, vector] };
 
 async function harness(t, { write = false, respond } = {}) {
   const requests = [];
@@ -458,13 +461,17 @@ test("rerank envelopes preserve zero, precision, server order and metadata inlin
     { docs, maxScore: 1, rerank: { ...baseMetadata, scoredCount: 0, status: "fallback", reason: "timeout" } },
     { docs, maxScore: 1 }
   ];
-  for (const response of responses) for (const download of [false, true]) {
+  for (const response of responses) for (const download of [false, true]) for (const search of [query, { query: bayesian }]) {
     const wire = { took: 210, total: response.docs.length, isDocsInline: true, ...response };
     const h = await harness(t, { respond: req => req.url.pathname === "/download" ? { body: response.docs }
       : { body: download ? { ...wire, docs: [], isDocsInline: false, docsUrl: `${req.url.origin}/download` } : wire } });
-    const result = data(await h.call("query_collection", { collectionName: "items", ...query, ...(response.rerank ? { rerank } : {}) }));
+    const result = data(await h.call("query_collection", { collectionName: "items", ...search, ...(response.rerank ? { rerank } : search.query.bayesian ? { candidateSize: 30 } : {}) }));
     assert.deepEqual(result, { ...wire, ...(download ? { docsUrl: `${h.baseUrl}/download` } : {}) });
-    if (download) assert.equal(h.requests[1].headers["x-api-key"], undefined);
+    assert.equal(h.requests.length, download ? 2 : 1, "Reuse the SDK download exactly once");
+    if (download) {
+      assert.equal(h.requests[1].headers["x-api-key"], undefined);
+      assert.equal(h.requests[1].headers.authorization, undefined);
+    }
   }
 });
 
@@ -476,4 +483,118 @@ test("returnOriginal does not hide service or hydration errors", async (t) => {
     assert.equal((await h.call("query_collection", { collectionName: "items", ...query, rerank: { ...rerank, onFailure: "returnOriginal" } })).isError, true);
     assert.equal(h.requests.length, download ? 2 : 1);
   }
+});
+
+test("Bayesian and adjacent free-form queries preserve budgets, options and rerank defaults", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_query_collection");
+  const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
+  assert.match(tool.inputSchema.properties.query.description, /exactly two/);
+  assert.match(tool.inputSchema.properties.candidateSize.description, /rerank.candidateSize/);
+  const inputs = [
+    { query: bayesian, size: 1, candidateSize: 1 },
+    { query: bayesian, size: 100, candidateSize: 100 },
+    { query: bayesian, candidateSize: 30 },
+    { query: bayesian, size: 2, candidateSize: 30, rerank: null },
+    { query: { bayesian: [{ bool: [lexical] }, vector] }, size: 2, candidateSize: 30,
+      ref: { kind: "branch", name: "dev" }, consistentRead: true, includeVectors: true,
+      fields: { include: ["id", "title"] }, partitionFilter: { field: "tenant", in: ["test"] } },
+    ...[rerank, { ...rerank, candidateSize: null }, { ...rerank, candidateSize: 30 }]
+      .map(rerank => ({ query: bayesian, size: 2, rerank })),
+    ...[lexical, vector, { knn: { field: "embedding", queryText: "restore", k: 30 } },
+      ...["rrf", "mm", "l2"].map(method => ({ [method]: [lexical, vector] })),
+      { futureQuery: { option: true } }].map(query => ({ query }))
+  ];
+  for (const input of inputs) {
+    assert.equal(validate({ collectionName: "items", ...input }).valid, true);
+    data(await h.call("query_collection", { collectionName: "items", ...input }));
+    // Fixed expectations, independent of the SDK serializer under test.
+    assert.deepEqual(h.requests.at(-1).body, { consistentRead: false, includeVectors: false, ...input });
+  }
+  const accepted = h.requests.length;
+  for (const candidateSize of [null, 1.5, "30", true]) {
+    const input = { collectionName: "items", query: bayesian, candidateSize };
+    assert.equal(validate(input).valid, false);
+    assert.equal((await h.call("query_collection", input)).isError, true);
+  }
+  assert.equal(h.requests.length, accepted);
+});
+
+test("Bayesian semantic rejection stays server-owned and service failures remain MCP errors", async (t) => {
+  const h = await harness(t, { respond: () => ({ status: 400, body: { message: "Invalid Bayesian contract" } }) });
+  const invalid = [
+    ...[[], [lexical], [lexical, vector, lexical], [{ ...lexical, boost: 1 }, vector],
+      [lexical, { ...vector, boost: 1 }], [{ bool: [{ bool: [{ ...lexical, boost: 1 }] }] }, vector],
+      ...["bayesian", "rrf", "mm", "l2"].map(method => [{ [method]: [lexical, vector] }, vector])]
+      .map(children => ({ query: { bayesian: children }, size: 2, candidateSize: 30 })),
+    { query: { bool: [bayesian] }, candidateSize: 30 },
+    { query: bayesian },
+    ...[0, -1, 101, 1].map(candidateSize => ({ query: bayesian, size: 2, candidateSize })),
+    { query: bayesian, candidateSize: 30, rerank },
+    ...[lexical, vector, ...["rrf", "mm", "l2"].map(method => ({ [method]: [lexical, vector] }))]
+      .map(query => ({ query, candidateSize: 30 }))
+  ];
+  for (const input of invalid) {
+    const result = await h.call("query_collection", { collectionName: "items", ...input });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Invalid Bayesian contract/);
+    assert.deepEqual(h.requests.at(-1).body, { consistentRead: false, includeVectors: false, ...input });
+  }
+  assert.equal(h.requests.length, invalid.length, "MCP must not replace service semantic validation");
+  for (const status of [401, 403, 422]) {
+    const failure = await harness(t, { respond: () => ({ status, body: { message: `Service failure ${status}` } }) });
+    const result = await failure.call("query_collection", { collectionName: "items", query: bayesian,
+      rerank: { ...rerank, onFailure: "returnOriginal" } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, new RegExp(`Service failure ${status}`));
+    assert.ok(!JSON.stringify(result).includes("test-secret"));
+  }
+});
+
+const embedding = { provider: "openai", model: "text-embedding-3-small", sourceField: "title" };
+
+test("native, legacy and caller-provided vector configurations preserve explicit inputs and metadata", async (t) => {
+  const h = await harness(t, { write: true, respond: req => req.method === "POST"
+    ? { status: 201, body: { collection: created } }
+    : { body: { collection: { ...collection, indexConfigs: {
+      title: { type: "text" }, embedding: { type: "vector", managedEmbedding: true,
+        embedding: { ...embedding, dimensions: 1536, similarity: "cosine" } }
+    } } } } });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection");
+  assert.match(tool.inputSchema.properties.indexConfigs.description, /managedEmbedding: false/);
+  const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
+  for (const field of [
+    { type: "vector", embedding },
+    { type: "vector", embedding: { ...embedding, dimensions: 512, similarity: "dot_product" } },
+    { type: "vector", managedEmbedding: true, embedding },
+    { type: "vector", dimensions: 2, similarity: "cosine" },
+    { type: "vector", managedEmbedding: false, dimensions: 2, similarity: "dot_product" },
+    { type: "object", objectIndexConfigs: { embedding: { type: "vector", embedding } } }
+  ]) {
+    const input = { collectionName: "items", indexConfigs: { title: { type: "text" }, embedding: field } };
+    assert.equal(validate(input).valid, true);
+    data(await h.call("create_collection", input));
+    assert.deepEqual(h.requests.at(-1).body, input);
+  }
+  const result = data(await h.call("get_collection", { collectionName: "items" }));
+  assert.deepEqual(result.collection.indexConfigs.embedding, { type: "vector", managedEmbedding: true,
+    embedding: { ...embedding, dimensions: 1536, similarity: "cosine" } });
+});
+
+test("SDK rejects contradictory native vectors and missing provider/model without HTTP", async (t) => {
+  const h = await harness(t, { write: true });
+  for (const field of [
+    { type: "vector", managedEmbedding: false, embedding },
+    ...[undefined, true].flatMap(flag => [
+      { type: "vector", ...(flag ? { managedEmbedding: flag } : {}), embedding, dimensions: 1536 },
+      { type: "vector", ...(flag ? { managedEmbedding: flag } : {}), embedding, similarity: "cosine" }
+    ]),
+    ...["provider", "model", "sourceField"].map(key => ({ type: "vector",
+      embedding: Object.fromEntries(Object.entries(embedding).filter(([name]) => name !== key)) })),
+    { type: "vector", managedEmbedding: true }
+  ]) {
+    const result = await h.call("create_collection", { collectionName: "items", indexConfigs: { embedding: field } });
+    assert.equal(result.isError, true);
+  }
+  assert.equal(h.requests.length, 0);
 });

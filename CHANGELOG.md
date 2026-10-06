@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Pin the stable LambdaDB SDK to 0.8.0; expose Bayesian candidate budgets and
+  native embedding configuration in MCP guidance while preserving free-form
+  queries, SDK/server validation, rerank defaults, errors and response metadata.
+- Retain legacy `managedEmbedding: true` and existing tool names/inputs. Native
+  embedding-only requests require a supporting server; no defaults are promoted.
+- Add Bayesian/native contract tests, installed-package coverage, practical MCP
+  examples and an opt-in live suite with verified temporary-collection cleanup.
+
 ## [0.1.2] - 2026-10-04
 
 - Pin the LambdaDB TypeScript SDK to 0.7.0 and expose all 49 fixed lowercase
