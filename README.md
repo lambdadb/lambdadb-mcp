@@ -55,7 +55,9 @@ configurations for reproducibility. `@dev`, `@rc` and unqualified (`latest`) res
 different release channels; installed copies do not update themselves.
 
 The server uses stdio: stdout contains only MCP JSON-RPC messages, diagnostics go
-to stderr, and stdin closure/SIGINT/SIGTERM ends the process. Running it without an
+to stderr, and stdin closure/SIGINT/SIGTERM ends the process. The MCP SDK limits
+the stdio receive buffer to 10 MiB and closes the transport if that limit is
+exceeded; keep incoming JSON-RPC messages below it. Running it without an
 MCP client waits for protocol input. See the [MCP transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 
 ## Project Structure

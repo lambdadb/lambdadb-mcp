@@ -8,7 +8,7 @@ changes outside the PR. Use a dedicated worktree when another checkout is in use
 
 Use Node.js 22.14.0 or newer. CI verifies the exact minimum 22.14.0 and current
 22.x and 24.x LTS releases. Node 20 is end-of-life and is no longer supported.
-The runtime dependencies permit older Node versions (MCP SDK 1.29.0 declares
+The runtime dependencies permit older Node versions (MCP SDK 1.31.0 declares
 Node >=18), but that is not a promise to support end-of-life runtimes. The
 22.14.0 floor also aligns with the CLI and npm's OIDC publishing runtime floor.
 See the [Node release schedule](https://nodejs.org/en/about/previous-releases)
