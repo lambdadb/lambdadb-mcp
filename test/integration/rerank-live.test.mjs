@@ -18,8 +18,8 @@ async function eventually(operation, label, timeoutMs = 300_000) {
   console.info(`[live:rerank] ${label}: PASS`);
 }
 
-// Separate opt-in: real inference can incur cost and requires an enabled managed model.
-test("live MCP managed reranking, custom criteria, empty results, downloads and cleanup", { timeout: 900_000 }, async () => {
+// Separate opt-in: real inference can incur cost and requires a native reranking model enabled by LambdaDB.
+test("live MCP native reranking, custom criteria, empty results, downloads and cleanup", { timeout: 900_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
   assert.equal(process.env.LAMBDADB_RUN_LIVE_RERANK_TESTS, "1", "Managed inference requires explicit opt-in");
   const config = getEnvConfig();
@@ -108,7 +108,7 @@ test("live MCP managed reranking, custom criteria, empty results, downloads and 
     await client.connect(clientTransport);
     await call("create_collection", {
       indexConfigs: { title: { type: "text" }, body: { type: "text" } },
-      description: "MCP managed reranking live contract smoke",
+      description: "MCP native reranking live contract smoke",
       tags: { purpose: "mcp-rerank-smoke" }, snapshotRetentionInDays: 1
     });
     console.info(`[live:rerank] Created ${collectionName}`);

@@ -39,7 +39,7 @@ const rerankSchema = z.strictObject({
     .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures."),
   criteria: z.array(z.string().min(1)).min(2).max(10).meta({ uniqueItems: true }).nullable().optional()
     .describe("Distinct nonblank descriptions from lowest to highest relevance, at most 2 KiB each and 8 KiB total UTF-8. Omitted/null uses defaults.")
-}).nullable().optional().describe("Optional per-query managed reranking; requires a scoring query and positive size, forbids sort. LambdaDB manages provider credentials.");
+}).nullable().optional().describe("Optional per-query native reranking; requires a scoring query and positive size, forbids sort. LambdaDB supplies provider credentials.");
 
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
@@ -96,7 +96,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Search documents with optional Bayesian hybrid search, managed reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
+        "Search documents with optional Bayesian hybrid search, native reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
