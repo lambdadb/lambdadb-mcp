@@ -17,7 +17,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_create_collection",
     {
       title: "Create Collection",
-      description: `Create a new collection in the configured project. Fixed lowercase text analyzer presets: ${Object.values(Analyzer).join(", ")}. Omitted analyzers uses standard; custom pipelines/options are unsupported. The keyword text analyzer is distinct from the keyword field type. Keyword indexes built on a supporting server support facets. Native vector fields accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers.`,
+      description: `Create a new collection in the configured project. Fixed lowercase text analyzer presets: ${Object.values(Analyzer).join(", ")}. Omitted analyzers uses standard; custom pipelines/options are unsupported. The keyword text analyzer is distinct from the keyword field type. Keyword indexes built on a supporting server support facets. Native embedding vector fields accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers.`,
       annotations: {
         openWorldHint: false
       },
@@ -26,7 +26,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
         indexConfigs: z.record(z.string(), z.any()).refine(
           (value) => Object.keys(value).length > 0,
           "indexConfigs must contain at least one field."
-        ).describe("Field configurations validated by the SDK/server. Native vectors: {type: 'vector', embedding: {provider, model, sourceField, dimensions?, similarity?}}; declare sourceField as text. Native dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity."),
+        ).describe("Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider, model, sourceField, dimensions?, similarity?}}; declare sourceField as text. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity."),
         description: z.string().max(255).optional(),
         tags: z.record(
           z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/),
