@@ -14,24 +14,24 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-The stable package is available on npm. As verified on 2026-10-06 (KST),
-`latest` resolves to `0.1.2` and `dev` to `0.1.3-dev.11`. Use an exact version for
-reproducibility or the default stable channel for initial setup. See
-[release status and policy](RELEASING.md).
+As verified on 2026-10-07 (KST), npm `latest` resolves to `0.1.3` and `dev` to
+`0.1.4-dev.15`. Use an exact version for reproducibility. Check the registry before
+installing a newly prepared release; source metadata alone does not establish npm
+publication. See [release status and policy](RELEASING.md).
 
-[MCP 0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) is the
-published stable release with SDK 0.7.0, 49 fixed text analyzer presets and optional
-managed reranking. Published `0.1.3-dev.11` contains SDK 0.8.0, Bayesian hybrid
-search and native embedding configuration. This source prepares stable `0.1.3`;
-it has not yet been published. To preview these changes, use
-`npx --yes @functional-systems/lambdadb-mcp@0.1.3-dev.11`.
-Existing installations need an MCP version containing these changes; upgrading
-the SDK separately does not update them.
+This checkout prepares MCP `0.1.4` with LambdaDB SDK `0.8.1`, native embedding and
+native reranking terminology, and MCP SDK `1.31.0`. The MCP SDK update includes a
+10 MiB stdio receive-buffer limit and revised schema-validation error formatting.
+Existing tool names, wire fields and read-only defaults remain unchanged.
+[MCP 0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) remains the
+verified stable installation in the snapshot above. Existing installations need
+an MCP release containing these changes; upgrading the SDK separately does not
+update them.
 
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.1.2
+npx --yes @functional-systems/lambdadb-mcp@0.1.3
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
@@ -55,7 +55,9 @@ configurations for reproducibility. `@dev`, `@rc` and unqualified (`latest`) res
 different release channels; installed copies do not update themselves.
 
 The server uses stdio: stdout contains only MCP JSON-RPC messages, diagnostics go
-to stderr, and stdin closure/SIGINT/SIGTERM ends the process. Running it without an
+to stderr, and stdin closure/SIGINT/SIGTERM ends the process. The MCP SDK limits
+the stdio receive buffer to 10 MiB and closes the transport if that limit is
+exceeded; keep incoming JSON-RPC messages below it. Running it without an
 MCP client waits for protocol input. See the [MCP transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 
 ## Project Structure
@@ -104,8 +106,8 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.0`, checked against
-the published package and [v0.8.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.0).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.1`, checked against
+the published package and [v0.8.1 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.1).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -230,7 +232,7 @@ integer candidate budgets unchanged, and leaves Bayesian structure, bounds and
 cross-field validation to the server, retaining service errors. No query defaults,
 weights or candidate counts are inserted by MCP. Bayesian scores are heuristic
 fusion scores; applied reranking preserves them in `retrievalScore` and retains
-all rerank status metadata, including through SDK-managed `docsUrl` downloads.
+all rerank status metadata, including when the SDK downloads documents from `docsUrl`.
 
 The [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
 and native embedding additions below are pinned to backend
@@ -274,8 +276,8 @@ Bayesian example above. For example, call `lambdadb_query_collection` with:
 }
 ```
 
-Native dimensions and similarity are optional and belong inside `embedding`.
-MCP does not infer a flag, provider, model or native dimensions/similarity default.
+Native embedding dimensions and similarity are optional and belong inside `embedding`.
+MCP does not infer a flag, provider, model or native embedding dimensions/similarity default.
 The SDK rejects `managedEmbedding: false` with `embedding`, and native embedding
 with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
@@ -283,12 +285,14 @@ server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
 that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
 
-### Optional managed reranking
+<a id="optional-managed-reranking"></a>
+
+### Optional native reranking
 
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
-LambdaDB manages provider credentials; only the existing project API key is needed.
-See the [managed reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+LambdaDB supplies provider credentials; only the existing project API key is needed.
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
 
 ```json
 {
@@ -433,7 +437,7 @@ temporary collection in cleanup, and verifies that the collection is absent.
 Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
 operations are not exposed as MCP tools. This test is separate from `npm run check`.
 
-Managed reranking has a separate live suite because it requires an enabled
+Native reranking has a separate live suite because it requires an enabled
 `typesafe` / `jev-1.13.0` model and can incur inference cost. Use the same explicitly
 authorized development project and write opt-in, with an additional inference opt-in:
 
@@ -454,8 +458,8 @@ suite does not deliberately induce failures or verify search quality, load,
 production deployment or billing readiness. These live suites are outside default
 checks and credential-free CI.
 
-Bayesian/native embedding verification also requires explicit managed inference
-opt-in for OpenAI embeddings and TypeSafe reranking:
+Bayesian/native embedding verification also requires explicit inference
+opt-in for native embedding with OpenAI and native reranking with TypeSafe:
 
 ```bash
 LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:bayesian

@@ -1,27 +1,50 @@
 # Releasing LambdaDB MCP
 
-## Stable candidate: 0.1.3 (2026-10-06 KST)
+## Stable candidate: 0.1.4 (2026-10-07 KST)
 
-`release/0.1.3` prepares the SDK 0.8.0 changes merged in
-[PR #14](https://github.com/lambdadb/lambdadb-mcp/pull/14) for review into `main`.
-The implementation matches develop commit
-`bd1ae5547f868991a22c92b5a07849edfcf696fb`; only release metadata and validation
-documentation change. Package and both root lockfile versions are `0.1.3`.
+`release/0.1.4` promotes reviewed develop commit
+`752fd825480556305f2a89025a0d87f5126b4d1b` to main with stable package/lock metadata
+and dated release notes. LambdaDB SDK 0.8.1 standardizes native embedding and
+native reranking terminology. MCP SDK 1.31.0 removes the reported OAuth-client
+advisory; its stdio receive-buffer limit is 10 MiB and schema-validation error
+formatting includes field paths. Existing application tool contracts remain.
 
-This candidate adds Bayesian candidate budgets and native embedding configuration
-while preserving existing tool names, free-form inputs, rerank defaults and
-metadata, SDK downloads, and read-only defaults. Older servers still require
-`managedEmbedding: true`. See `docs/validation/2026-10-06-sdk-0.8.0.md` for the
-authorized development-service evidence and `docs/validation/2026-10-06-0.1.3.md`
-for publication, candidate checks and their separate scopes.
+The user authorized the stable release. Complete main PR CI and review, retain
+ancestry with a merge commit, tag the verified main commit `v0.1.4`, and publish
+the GitHub Release to trigger the existing OIDC workflow. Main pushes validate
+only. Do not publish manually or treat this candidate as already on npm.
 
-Review this candidate into main using a merge commit to preserve ancestry.
-Then obtain authorization for the `v0.1.3` tag and published GitHub Release; no
-tag, stable publication or default promotion is part of candidate preparation.
-After stable publication, synchronize main back to develop with the next
-`0.1.4-dev.1` base. Do not merge stable metadata directly into develop.
+Registry snapshot: `latest=0.1.3`, `dev=0.1.4-dev.15`. The published dev package
+matches the reviewed commit and both SDK pins, passed 35 installed-package tests,
+and has matching registry integrity and provenance statement metadata. See
+[the validation record](docs/validation/2026-10-07-0.1.4.md) for distinct candidate
+and published-package evidence. No new paid or state-changing live smoke is
+included. After publication verification, synchronize main into develop through
+a PR with the next `0.1.5-dev.1` base; that merge can publish a new dev version.
 
-## Current stable release: 0.1.2 (2026-10-04 KST)
+## Current stable release: 0.1.3 (2026-10-06 KST)
+
+[v0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) tags main
+commit `159b84aace7d9352cf8e5315bc7f7192e8d65a41`, which merged
+[release PR #15](https://github.com/lambdadb/lambdadb-mcp/pull/15) using an
+explicitly authorized admin merge commit and preserved ancestry. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37458444410)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.3`, `dev=0.1.3-dev.11`.
+
+SDK 0.8.0 adds Bayesian candidate budgets and native embedding configuration.
+Existing tool names, free-form inputs, rerank defaults and metadata, SDK downloads,
+and read-only defaults remain. Older servers still require
+`managedEmbedding: true`; Bayesian/native inputs require a supporting deployment.
+See `docs/validation/2026-10-06-0.1.3.md` for separate candidate, source-build live,
+and published-package evidence. Do not repeat publication or move the tag.
+
+`release/sync-0.1.3` brings main back into develop with the next source base
+`0.1.4-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges may publish new dev versions while `latest` stays on
+0.1.3. Do not merge stable version metadata directly into develop.
+
+## Previous stable release: 0.1.2 (2026-10-04 KST)
 
 [v0.1.2](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.2) tags main
 commit `627ffbb3161bc3d41d5f2a5f2a0f5289fd73de3f`, which merged
@@ -33,7 +56,7 @@ A downloaded stable tarball matched registry integrity, source commit and SDK
 0.7.0 and passed 31 clean-consumer stdio tests. Provenance statement repository,
 workflow, tag, source commit and subject digest matched the publication.
 
-SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query managed
+SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query native
 reranking. Read-only defaults and explicit write opt-in remain. See
 `docs/validation/2026-10-04-0.1.2.md` for separate candidate, authorized
 source-build live, published dev and published stable evidence. Do not repeat the
@@ -45,7 +68,7 @@ while `latest` stays on 0.1.2 until an explicitly authorized stable release.
 Do not merge stable version metadata directly into develop.
 
 Live suites require explicit designation of a development project. Reranking
-also requires managed inference opt-in; no Jev API key is required. Live contract
+also requires native reranking inference opt-in; no Jev API key is required. Live contract
 checks do not establish production deployment, search quality, load/failure
 coverage or billing readiness. Supporting backend deployment/model availability
 and keyword-index requirements remain; existing collections/indexes are not migrated.
