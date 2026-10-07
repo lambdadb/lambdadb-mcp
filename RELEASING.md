@@ -1,5 +1,27 @@
 # Releasing LambdaDB MCP
 
+## Stable candidate: 0.1.4 (2026-10-07 KST)
+
+`release/0.1.4` promotes reviewed develop commit
+`752fd825480556305f2a89025a0d87f5126b4d1b` to main with stable package/lock metadata
+and dated release notes. LambdaDB SDK 0.8.1 standardizes native embedding and
+native reranking terminology. MCP SDK 1.31.0 removes the reported OAuth-client
+advisory; its stdio receive-buffer limit is 10 MiB and schema-validation error
+formatting includes field paths. Existing application tool contracts remain.
+
+The user authorized the stable release. Complete main PR CI and review, retain
+ancestry with a merge commit, tag the verified main commit `v0.1.4`, and publish
+the GitHub Release to trigger the existing OIDC workflow. Main pushes validate
+only. Do not publish manually or treat this candidate as already on npm.
+
+Registry snapshot: `latest=0.1.3`, `dev=0.1.4-dev.15`. The published dev package
+matches the reviewed commit and both SDK pins, passed 35 installed-package tests,
+and has matching registry integrity and provenance statement metadata. See
+[the validation record](docs/validation/2026-10-07-0.1.4.md) for distinct candidate
+and published-package evidence. No new paid or state-changing live smoke is
+included. After publication verification, synchronize main into develop through
+a PR with the next `0.1.5-dev.1` base; that merge can publish a new dev version.
+
 ## Current stable release: 0.1.3 (2026-10-06 KST)
 
 [v0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) tags main
