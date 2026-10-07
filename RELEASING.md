@@ -1,28 +1,31 @@
 # Releasing LambdaDB MCP
 
-## Stable candidate: 0.1.4 (2026-10-07 KST)
+## Current stable release: 0.1.4 (2026-10-07 KST)
 
-`release/0.1.4` promotes reviewed develop commit
-`752fd825480556305f2a89025a0d87f5126b4d1b` to main with stable package/lock metadata
-and dated release notes. LambdaDB SDK 0.8.1 standardizes native embedding and
-native reranking terminology. MCP SDK 1.31.0 removes the reported OAuth-client
-advisory; its stdio receive-buffer limit is 10 MiB and schema-validation error
-formatting includes field paths. Existing application tool contracts remain.
+[v0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) tags main
+commit `f84038962bbdc6f5375b873727d0cf54d843c7b2`, which merged
+[release PR #21](https://github.com/lambdadb/lambdadb-mcp/pull/21) with an explicitly
+authorized administrator merge and preserved ancestry. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37600343928)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.4`, `dev=0.1.4-dev.15`.
 
-The user authorized the stable release. Complete main PR CI and review, retain
-ancestry with a merge commit, tag the verified main commit `v0.1.4`, and publish
-the GitHub Release to trigger the existing OIDC workflow. Main pushes validate
-only. Do not publish manually or treat this candidate as already on npm.
+LambdaDB SDK 0.8.1 standardizes native embedding and native reranking terminology.
+MCP SDK 1.31.0 addresses the OAuth-client advisory; its stdio receive-buffer limit
+is 10 MiB and schema-validation error formatting includes field paths. Existing
+application tool contracts remain. The downloaded stable artifact matched its
+registry integrity, source commit and both SDK pins, passed 35 installed-package
+tests, and had zero consumer audit vulnerabilities. Provenance statement metadata
+matched the release source and artifact. No new paid/state-changing live smoke
+was run. See [validation evidence](docs/validation/2026-10-07-0.1.4.md).
+Do not repeat publication or move the tag.
 
-Registry snapshot: `latest=0.1.3`, `dev=0.1.4-dev.15`. The published dev package
-matches the reviewed commit and both SDK pins, passed 35 installed-package tests,
-and has matching registry integrity and provenance statement metadata. See
-[the validation record](docs/validation/2026-10-07-0.1.4.md) for distinct candidate
-and published-package evidence. No new paid or state-changing live smoke is
-included. After publication verification, synchronize main into develop through
-a PR with the next `0.1.5-dev.1` base; that merge can publish a new dev version.
+`release/sync-0.1.4` brings main back into develop with the next source base
+`0.1.5-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges can publish new dev versions while `latest` stays on
+0.1.4. Do not merge stable version metadata directly into develop.
 
-## Current stable release: 0.1.3 (2026-10-06 KST)
+## Previous stable release: 0.1.3 (2026-10-06 KST)
 
 [v0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) tags main
 commit `159b84aace7d9352cf8e5315bc7f7192e8d65a41`, which merged
