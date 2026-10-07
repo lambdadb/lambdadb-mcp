@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.1.4] - 2026-10-07
+
+- Standardize feature guidance as native embedding and native reranking; pin the
+  LambdaDB TypeScript SDK to 0.8.1. Preserve public identifiers, legacy wire fields,
+  application error strings, existing behavior tests and pinned source links.
+- Update the MCP SDK to 1.31.0 for GHSA-6qxp-vccf-f47h. The advisory concerns HTTP
+  OAuth clients; this stdio server does not use the affected OAuth path.
+- Document upstream compatibility differences: the MCP SDK limits the stdio receive
+  buffer to 10 MiB and closes the transport on overflow, and formats schema
+  validation errors with field paths. Application tool names, schemas and defaults
+  remain unchanged.
+
 ## [0.1.3] - 2026-10-06
 
 - Pin the stable LambdaDB SDK to 0.8.0; expose Bayesian candidate budgets and

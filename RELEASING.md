@@ -1,6 +1,31 @@
 # Releasing LambdaDB MCP
 
-## Current stable release: 0.1.3 (2026-10-06 KST)
+## Current stable release: 0.1.4 (2026-10-07 KST)
+
+[v0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) tags main
+commit `f84038962bbdc6f5375b873727d0cf54d843c7b2`, which merged
+[release PR #21](https://github.com/lambdadb/lambdadb-mcp/pull/21) with an explicitly
+authorized administrator merge and preserved ancestry. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/37600343928)
+passed Node 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.4`, `dev=0.1.4-dev.15`.
+
+LambdaDB SDK 0.8.1 standardizes native embedding and native reranking terminology.
+MCP SDK 1.31.0 addresses the OAuth-client advisory; its stdio receive-buffer limit
+is 10 MiB and schema-validation error formatting includes field paths. Existing
+application tool contracts remain. The downloaded stable artifact matched its
+registry integrity, source commit and both SDK pins, passed 35 installed-package
+tests, and had zero consumer audit vulnerabilities. Provenance statement metadata
+matched the release source and artifact. No new paid/state-changing live smoke
+was run. See [validation evidence](docs/validation/2026-10-07-0.1.4.md).
+Do not repeat publication or move the tag.
+
+`release/sync-0.1.4` brings main back into develop with the next source base
+`0.1.5-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+Eligible develop merges can publish new dev versions while `latest` stays on
+0.1.4. Do not merge stable version metadata directly into develop.
+
+## Previous stable release: 0.1.3 (2026-10-06 KST)
 
 [v0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) tags main
 commit `159b84aace7d9352cf8e5315bc7f7192e8d65a41`, which merged

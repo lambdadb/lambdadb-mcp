@@ -14,24 +14,23 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-The stable package is available on npm. As verified on 2026-10-06 (KST),
-`latest` resolves to `0.1.3` and `dev` to `0.1.3-dev.11`. Use an exact version for
-reproducibility or the default stable channel for initial setup. See
-[release status and policy](RELEASING.md).
+As verified on 2026-10-07 (KST), npm `latest` resolves to `0.1.4` and `dev` to
+`0.1.4-dev.15`. Use an exact version for reproducibility or the stable channel for
+initial setup. See [release status and policy](RELEASING.md).
 
-[MCP 0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) is the
-published stable release with SDK 0.8.0, Bayesian hybrid search and native
-embedding configuration, alongside native reranking and all 49 text analyzers.
-This synchronization starts the next `0.1.4-dev.1` source base; check npm for the
-current published dev version. Use exact stable version `0.1.3` for reproducible
-installed execution.
-Existing installations need an MCP version containing these changes; upgrading
+[MCP 0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) is published
+with LambdaDB SDK `0.8.1`, native embedding and native reranking terminology, and
+MCP SDK `1.31.0`. The MCP SDK update includes a 10 MiB stdio receive-buffer limit
+and revised schema-validation error formatting. Existing tool names, wire fields
+and read-only defaults remain unchanged. This checkout starts the next
+`0.1.5-dev.1` source base; check npm for the current published dev version.
+Existing installations need an MCP release containing these changes; upgrading
 the SDK separately does not update them.
 
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.1.3
+npx --yes @functional-systems/lambdadb-mcp@0.1.4
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
