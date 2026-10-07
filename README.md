@@ -21,7 +21,7 @@ reproducibility or the default stable channel for initial setup. See
 
 [MCP 0.1.3](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.3) is the
 published stable release with SDK 0.8.0, Bayesian hybrid search and native
-embedding configuration, alongside managed reranking and all 49 text analyzers.
+embedding configuration, alongside native reranking and all 49 text analyzers.
 This synchronization starts the next `0.1.4-dev.1` source base; check npm for the
 current published dev version. Use exact stable version `0.1.3` for reproducible
 installed execution.
@@ -104,8 +104,8 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.0`, checked against
-the published package and [v0.8.0 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.0).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.1`, checked against
+the published package and [v0.8.1 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.1).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -230,7 +230,7 @@ integer candidate budgets unchanged, and leaves Bayesian structure, bounds and
 cross-field validation to the server, retaining service errors. No query defaults,
 weights or candidate counts are inserted by MCP. Bayesian scores are heuristic
 fusion scores; applied reranking preserves them in `retrievalScore` and retains
-all rerank status metadata, including through SDK-managed `docsUrl` downloads.
+all rerank status metadata, including when the SDK downloads documents from `docsUrl`.
 
 The [Bayesian contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/bayesian-search.md)
 and native embedding additions below are pinned to backend
@@ -274,8 +274,8 @@ Bayesian example above. For example, call `lambdadb_query_collection` with:
 }
 ```
 
-Native dimensions and similarity are optional and belong inside `embedding`.
-MCP does not infer a flag, provider, model or native dimensions/similarity default.
+Native embedding dimensions and similarity are optional and belong inside `embedding`.
+MCP does not infer a flag, provider, model or native embedding dimensions/similarity default.
 The SDK rejects `managedEmbedding: false` with `embedding`, and native embedding
 with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
@@ -283,12 +283,14 @@ server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
 that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
 
-### Optional managed reranking
+<a id="optional-managed-reranking"></a>
+
+### Optional native reranking
 
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
-LambdaDB manages provider credentials; only the existing project API key is needed.
-See the [managed reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+LambdaDB supplies provider credentials; only the existing project API key is needed.
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
 
 ```json
 {
@@ -433,7 +435,7 @@ temporary collection in cleanup, and verifies that the collection is absent.
 Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
 operations are not exposed as MCP tools. This test is separate from `npm run check`.
 
-Managed reranking has a separate live suite because it requires an enabled
+Native reranking has a separate live suite because it requires an enabled
 `typesafe` / `jev-1.13.0` model and can incur inference cost. Use the same explicitly
 authorized development project and write opt-in, with an additional inference opt-in:
 
@@ -454,8 +456,8 @@ suite does not deliberately induce failures or verify search quality, load,
 production deployment or billing readiness. These live suites are outside default
 checks and credential-free CI.
 
-Bayesian/native embedding verification also requires explicit managed inference
-opt-in for OpenAI embeddings and TypeSafe reranking:
+Bayesian/native embedding verification also requires explicit inference
+opt-in for native embedding with OpenAI and native reranking with TypeSafe:
 
 ```bash
 LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:bayesian

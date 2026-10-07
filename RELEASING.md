@@ -34,7 +34,7 @@ A downloaded stable tarball matched registry integrity, source commit and SDK
 0.7.0 and passed 31 clean-consumer stdio tests. Provenance statement repository,
 workflow, tag, source commit and subject digest matched the publication.
 
-SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query managed
+SDK 0.7.0 adds 49 fixed text analyzer presets and optional per-query native
 reranking. Read-only defaults and explicit write opt-in remain. See
 `docs/validation/2026-10-04-0.1.2.md` for separate candidate, authorized
 source-build live, published dev and published stable evidence. Do not repeat the
@@ -46,7 +46,7 @@ while `latest` stays on 0.1.2 until an explicitly authorized stable release.
 Do not merge stable version metadata directly into develop.
 
 Live suites require explicit designation of a development project. Reranking
-also requires managed inference opt-in; no Jev API key is required. Live contract
+also requires native reranking inference opt-in; no Jev API key is required. Live contract
 checks do not establish production deployment, search quality, load/failure
 coverage or billing readiness. Supporting backend deployment/model availability
 and keyword-index requirements remain; existing collections/indexes are not migrated.
