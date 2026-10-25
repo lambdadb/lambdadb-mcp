@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { queryCollectionRequestBodyToJSON } from "@functional-systems/lambdadb/models/operations";
 const root = process.env.MCP_TEST_ROOT ? pathToFileURL(`${process.env.MCP_TEST_ROOT}/`) : new URL("../", import.meta.url);
 const { getEnvConfig } = await import(new URL("dist/config/env.js", root));
@@ -109,6 +110,19 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.equal(list.inputSchema.properties.consistentRead, undefined);
 });
 
+test("tool input schemas use object roots without Bedrock-rejected composition", async (t) => {
+  const h = await harness(t, { write: true });
+  const tools = (await h.client.listTools()).tools;
+  assert.equal(tools.length, 8);
+  for (const tool of tools) {
+    assert.equal(tool.inputSchema.type, "object", tool.name);
+    for (const keyword of ["allOf", "anyOf", "oneOf"]) {
+      assert.equal(Object.hasOwn(tool.inputSchema, keyword), false, `${tool.name}: ${keyword}`);
+    }
+  }
+  assert.equal(h.requests.length, 0);
+});
+
 test("list/get accept current metadata and preserve millisecond timestamps", async (t) => {
   for (const extra of [{}, { dataUpdatedAt: timestamp + 1, partitionConfig: null }]) {
     const wire = { ...collection, ...extra };
@@ -126,6 +140,23 @@ test("list/get accept current metadata and preserve millisecond timestamps", asy
     assert.equal(fetched.collection.snapshotRetentionInDays, 30);
     assert.equal(h.requests[0].url.searchParams.get("pageToken"), "previous");
   }
+});
+
+test("omitted tool arguments permit optional inputs and still reject required inputs", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { collections: [] } }) });
+  const listed = await h.client.request({
+    method: "tools/call", params: { name: "lambdadb_list_collections" }
+  }, CallToolResultSchema);
+  assert.deepEqual(data(listed), { collections: [] });
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].method, "GET");
+  assert.equal(h.requests[0].url.pathname, "/projects/test/collections");
+  const rejected = await h.client.request({
+    method: "tools/call", params: { name: "lambdadb_get_collection" }
+  }, CallToolResultSchema);
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content[0].text, /Invalid arguments.*collectionName/s);
+  assert.equal(h.requests.length, 1, "Missing required inputs must not reach HTTP");
 });
 
 test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
@@ -177,6 +208,7 @@ test("facet JSON Schema, tool validation and SDK requests agree on optional/null
   const valid = [
     {}, { size: 1 }, { size: 100 }, { facets: {} },
     { size: 0, facets: { category: {} } },
+    { size: 0, facets: { category: {} }, rerank: null },
     { size: 0, facets: { category: { size: null } } },
     { facets: { category: { size: 1 } } }, { facets: { category: { size: 100 } } },
     { ...query, size: 2, facets: { category: { size: 10 }, "metadata.category": {} } },
