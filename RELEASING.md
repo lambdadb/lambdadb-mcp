@@ -1,27 +1,33 @@
 # Releasing LambdaDB MCP
 
-## Prepared stable candidate: 0.1.5 (2026-10-25 KST)
+## Current stable release: 0.1.5 (2026-10-25 KST)
 
-The `release/0.1.5` branch promotes reviewed develop commit
-`bf4536f5a8256a4193e8dcea86f1ecedc626294d`, including
-[Kiro schema PR #25](https://github.com/lambdadb/lambdadb-mcp/pull/25) and
-[dependency PR #26](https://github.com/lambdadb/lambdadb-mcp/pull/26), into main.
-Candidate-only changes are package/lock versions and release documentation;
-application source, tests, dependencies and CI match that reviewed source.
-See the [candidate validation record](docs/validation/2026-10-25-0.1.5.md).
+[v0.1.5](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.5) tags main
+commit `1ae40dcbebea734e34ddde024e0991c8bf3fda64`, which merged
+[release PR #27](https://github.com/lambdadb/lambdadb-mcp/pull/27) with preserved
+ancestry. The user explicitly authorized the annotated tag, non-prerelease
+GitHub Release and npm latest publication. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/40169478215)
+passed Node.js 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.5`, `dev=0.1.5-dev.18`.
 
-As checked on 2026-10-25 (KST), `latest` remains 0.1.4 and no `v0.1.5` tag
-exists. Candidate validation does not publish a package. After review, merge into
-main while preserving ancestry, then obtain explicit authorization before
-creating the annotated `v0.1.5` tag and publishing its non-prerelease GitHub
-Release. The release workflow must test and publish its exact artifact; verify
-registry identity, integrity, provenance and clean-consumer behavior afterward.
+The downloaded 15-file stable artifact matched the tagged source and registry
+integrity, passed 37 installed-package tests, and had zero consumer audit
+findings. `npm audit signatures` reported no invalid or missing signatures;
+provenance repository, workflow, tag, commit and artifact digest matched.
+Actual Kiro V2/Sonnet called the published MCP directly against a synthetic
+backend without a resolver substitution. A separate actual development-service
+check verified authentication and collection-list access only. No writes or
+search readiness are claimed. See the
+[validation record](docs/validation/2026-10-25-0.1.5.md). Do not repeat publication
+or move the immutable tag.
 
-The LambdaDB CLI still pins MCP 0.1.4. Stable CLI users receive this fix only
-after a separate CLI pin update and release. After MCP publication, synchronize
-main back into develop with the next dev base through a PR.
+`release/sync-0.1.5` brings this main history back into develop with the next
+`0.1.6-dev.1` source base. Merge with preserved ancestry. Eligible develop merges
+can publish dev versions while latest stays on 0.1.5. CLI 0.1.5 still pins MCP
+0.1.4; its separate pin update/release is required for stable CLI users.
 
-## Current stable release: 0.1.4 (2026-10-07 KST)
+## Previous stable release: 0.1.4 (2026-10-07 KST)
 
 [v0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) tags main
 commit `f84038962bbdc6f5375b873727d0cf54d843c7b2`, which merged

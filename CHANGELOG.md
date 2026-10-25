@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Synchronize the 0.1.5 release history and start the 0.1.6 development line.
+
 ## [0.1.5] - 2026-10-25
 
 - Pin MCP SDK 1.32.2, raise the Zod minimum to 4.6.7, and refresh the affected
