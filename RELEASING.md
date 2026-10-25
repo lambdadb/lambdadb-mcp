@@ -1,6 +1,33 @@
 # Releasing LambdaDB MCP
 
-## Current stable release: 0.1.4 (2026-10-07 KST)
+## Current stable release: 0.1.5 (2026-10-25 KST)
+
+[v0.1.5](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.5) tags main
+commit `1ae40dcbebea734e34ddde024e0991c8bf3fda64`, which merged
+[release PR #27](https://github.com/lambdadb/lambdadb-mcp/pull/27) with preserved
+ancestry. The user explicitly authorized the annotated tag, non-prerelease
+GitHub Release and npm latest publication. The
+[release workflow](https://github.com/lambdadb/lambdadb-mcp/actions/runs/40169478215)
+passed Node.js 22.14.0 / 22 / 24 validation and published its exact tested artifact
+with OIDC and provenance. Registry snapshot: `latest=0.1.5`, `dev=0.1.5-dev.18`.
+
+The downloaded 15-file stable artifact matched the tagged source and registry
+integrity, passed 37 installed-package tests, and had zero consumer audit
+findings. `npm audit signatures` reported no invalid or missing signatures;
+provenance repository, workflow, tag, commit and artifact digest matched.
+Actual Kiro V2/Sonnet called the published MCP directly against a synthetic
+backend without a resolver substitution. A separate actual development-service
+check verified authentication and collection-list access only. No writes or
+search readiness are claimed. See the
+[validation record](docs/validation/2026-10-25-0.1.5.md). Do not repeat publication
+or move the immutable tag.
+
+`release/sync-0.1.5` brings this main history back into develop with the next
+`0.1.6-dev.1` source base. Merge with preserved ancestry. Eligible develop merges
+can publish dev versions while latest stays on 0.1.5. CLI 0.1.5 still pins MCP
+0.1.4; its separate pin update/release is required for stable CLI users.
+
+## Previous stable release: 0.1.4 (2026-10-07 KST)
 
 [v0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) tags main
 commit `f84038962bbdc6f5375b873727d0cf54d843c7b2`, which merged
@@ -20,8 +47,9 @@ matched the release source and artifact. No new paid/state-changing live smoke
 was run. See [validation evidence](docs/validation/2026-10-07-0.1.4.md).
 Do not repeat publication or move the tag.
 
-`release/sync-0.1.4` brings main back into develop with the next source base
-`0.1.5-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+The 0.1.4 synchronization completed in
+[PR #22](https://github.com/lambdadb/lambdadb-mcp/pull/22), bringing main back into
+develop with the next source base `0.1.5-dev.1` and preserved ancestry.
 Eligible develop merges can publish new dev versions while `latest` stays on
 0.1.4. Do not merge stable version metadata directly into develop.
 
