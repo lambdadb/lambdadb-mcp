@@ -27,6 +27,14 @@ and read-only defaults remain unchanged. This checkout starts the next
 Existing installations need an MCP release containing these changes; upgrading
 the SDK separately does not update them.
 
+This checkout pins MCP SDK `1.32.2` and requires Zod `^4.6.7`, with patched
+transitive dependencies in the lockfile. The SDK now treats omitted tool
+arguments as an empty object; required inputs still fail validation. Its new
+`maxToolInputElements` option remains unset, preserving existing input limits.
+Upstream HTTP redirect/authentication and experimental-task fixes do not add
+those features to this stdio-only server. See the
+[upstream upgrade notes](https://github.com/modelcontextprotocol/typescript-sdk/releases/tag/1.32.0).
+
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
