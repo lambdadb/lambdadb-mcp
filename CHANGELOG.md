@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pin MCP SDK 1.32.2, raise the Zod minimum to 4.6.7, and refresh the affected
+  transitive dependencies to clear six npm audit findings. Keep the LambdaDB
+  SDK, Node.js floor, tool schemas and read-only defaults unchanged. The new SDK
+  input-element cap remains unset; omitted tool arguments now behave as an empty
+  object while required inputs still fail validation.
+
 - Replace the query tool's top-level `allOf` with equivalent conditionals so
   Claude through Kiro/Bedrock can accept the tool inventory. Preserve facet and
   rerank schema constraints, runtime validation and read-only defaults.

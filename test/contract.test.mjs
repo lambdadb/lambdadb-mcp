@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { queryCollectionRequestBodyToJSON } from "@functional-systems/lambdadb/models/operations";
 const root = process.env.MCP_TEST_ROOT ? pathToFileURL(`${process.env.MCP_TEST_ROOT}/`) : new URL("../", import.meta.url);
 const { getEnvConfig } = await import(new URL("dist/config/env.js", root));
@@ -139,6 +140,23 @@ test("list/get accept current metadata and preserve millisecond timestamps", asy
     assert.equal(fetched.collection.snapshotRetentionInDays, 30);
     assert.equal(h.requests[0].url.searchParams.get("pageToken"), "previous");
   }
+});
+
+test("omitted tool arguments permit optional inputs and still reject required inputs", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { collections: [] } }) });
+  const listed = await h.client.request({
+    method: "tools/call", params: { name: "lambdadb_list_collections" }
+  }, CallToolResultSchema);
+  assert.deepEqual(data(listed), { collections: [] });
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].method, "GET");
+  assert.equal(h.requests[0].url.pathname, "/projects/test/collections");
+  const rejected = await h.client.request({
+    method: "tools/call", params: { name: "lambdadb_get_collection" }
+  }, CallToolResultSchema);
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content[0].text, /Invalid arguments.*collectionName/s);
+  assert.equal(h.requests.length, 1, "Missing required inputs must not reach HTTP");
 });
 
 test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
