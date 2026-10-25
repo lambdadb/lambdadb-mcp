@@ -1,5 +1,26 @@
 # Releasing LambdaDB MCP
 
+## Prepared stable candidate: 0.1.5 (2026-10-25 KST)
+
+The `release/0.1.5` branch promotes reviewed develop commit
+`bf4536f5a8256a4193e8dcea86f1ecedc626294d`, including
+[Kiro schema PR #25](https://github.com/lambdadb/lambdadb-mcp/pull/25) and
+[dependency PR #26](https://github.com/lambdadb/lambdadb-mcp/pull/26), into main.
+Candidate-only changes are package/lock versions and release documentation;
+application source, tests, dependencies and CI match that reviewed source.
+See the [candidate validation record](docs/validation/2026-10-25-0.1.5.md).
+
+As checked on 2026-10-25 (KST), `latest` remains 0.1.4 and no `v0.1.5` tag
+exists. Candidate validation does not publish a package. After review, merge into
+main while preserving ancestry, then obtain explicit authorization before
+creating the annotated `v0.1.5` tag and publishing its non-prerelease GitHub
+Release. The release workflow must test and publish its exact artifact; verify
+registry identity, integrity, provenance and clean-consumer behavior afterward.
+
+The LambdaDB CLI still pins MCP 0.1.4. Stable CLI users receive this fix only
+after a separate CLI pin update and release. After MCP publication, synchronize
+main back into develop with the next dev base through a PR.
+
 ## Current stable release: 0.1.4 (2026-10-07 KST)
 
 [v0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) tags main
@@ -20,8 +41,9 @@ matched the release source and artifact. No new paid/state-changing live smoke
 was run. See [validation evidence](docs/validation/2026-10-07-0.1.4.md).
 Do not repeat publication or move the tag.
 
-`release/sync-0.1.4` brings main back into develop with the next source base
-`0.1.5-dev.1`. Review it into develop using a merge commit to preserve ancestry.
+The 0.1.4 synchronization completed in
+[PR #22](https://github.com/lambdadb/lambdadb-mcp/pull/22), bringing main back into
+develop with the next source base `0.1.5-dev.1` and preserved ancestry.
 Eligible develop merges can publish new dev versions while `latest` stays on
 0.1.4. Do not merge stable version metadata directly into develop.
 

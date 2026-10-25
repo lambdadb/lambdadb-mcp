@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.5] - 2026-10-25
+
 - Pin MCP SDK 1.32.2, raise the Zod minimum to 4.6.7, and refresh the affected
   transitive dependencies to clear six npm audit findings. Keep the LambdaDB
   SDK, Node.js floor, tool schemas and read-only defaults unchanged. The new SDK

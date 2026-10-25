@@ -14,21 +14,22 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-As verified on 2026-10-07 (KST), npm `latest` resolves to `0.1.4` and `dev` to
-`0.1.4-dev.15`. Use an exact version for reproducibility or the stable channel for
+As verified on 2026-10-25 (KST), npm `latest` resolves to `0.1.4`. This checkout
+prepares `0.1.5`; it is not yet published. The `dev` channel advances separately.
+Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
 [MCP 0.1.4](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.4) is published
 with LambdaDB SDK `0.8.1`, native embedding and native reranking terminology, and
 MCP SDK `1.31.0`. The MCP SDK update includes a 10 MiB stdio receive-buffer limit
 and revised schema-validation error formatting. Existing tool names, wire fields
-and read-only defaults remain unchanged. This checkout starts the next
-`0.1.5-dev.1` source base; check npm for the current published dev version.
+and read-only defaults remain unchanged.
 Existing installations need an MCP release containing these changes; upgrading
 the SDK separately does not update them.
 
 This checkout pins MCP SDK `1.32.2` and requires Zod `^4.6.7`, with patched
-transitive dependencies in the lockfile. The SDK now treats omitted tool
+transitive dependencies in the lockfile. It replaces the query tool's top-level
+`allOf` with equivalent conditionals for Kiro/Claude compatibility. The SDK now treats omitted tool
 arguments as an empty object; required inputs still fail validation. Its new
 `maxToolInputElements` option remains unset, preserving existing input limits.
 Upstream HTTP redirect/authentication and experimental-task fixes do not add
