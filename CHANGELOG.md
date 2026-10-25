@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Replace the query tool's top-level `allOf` with equivalent conditionals so
+  Claude through Kiro/Bedrock can accept the tool inventory. Preserve facet and
+  rerank schema constraints, runtime validation and read-only defaults.
+
 ## [0.1.4] - 2026-10-07
 
 - Standardize feature guidance as native embedding and native reranking; pin the

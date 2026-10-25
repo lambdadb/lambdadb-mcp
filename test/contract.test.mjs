@@ -109,6 +109,19 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.equal(list.inputSchema.properties.consistentRead, undefined);
 });
 
+test("tool input schemas use object roots without Bedrock-rejected composition", async (t) => {
+  const h = await harness(t, { write: true });
+  const tools = (await h.client.listTools()).tools;
+  assert.equal(tools.length, 8);
+  for (const tool of tools) {
+    assert.equal(tool.inputSchema.type, "object", tool.name);
+    for (const keyword of ["allOf", "anyOf", "oneOf"]) {
+      assert.equal(Object.hasOwn(tool.inputSchema, keyword), false, `${tool.name}: ${keyword}`);
+    }
+  }
+  assert.equal(h.requests.length, 0);
+});
+
 test("list/get accept current metadata and preserve millisecond timestamps", async (t) => {
   for (const extra of [{}, { dataUpdatedAt: timestamp + 1, partitionConfig: null }]) {
     const wire = { ...collection, ...extra };
@@ -177,6 +190,7 @@ test("facet JSON Schema, tool validation and SDK requests agree on optional/null
   const valid = [
     {}, { size: 1 }, { size: 100 }, { facets: {} },
     { size: 0, facets: { category: {} } },
+    { size: 0, facets: { category: {} }, rerank: null },
     { size: 0, facets: { category: { size: null } } },
     { facets: { category: { size: 1 } } }, { facets: { category: { size: 100 } } },
     { ...query, size: 2, facets: { category: { size: 10 }, "metadata.category": {} } },

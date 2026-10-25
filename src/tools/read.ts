@@ -130,18 +130,18 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
           context.addIssue({ code: "custom", path: ["facets"], message: "size: 0 requires at least one facet." });
         }
       }).meta({
-        // Keep the cross-field rule visible to MCP clients as well as tools/call.
-        allOf: [{
+        // Claude on Bedrock rejects top-level allOf/anyOf/oneOf. Preserve both
+        // cross-field rules with conditionals; reranking already forbids size: 0.
+        if: { properties: { rerank: { type: "object" } }, required: ["rerank"] },
+        then: {
+          required: ["query"],
+          properties: { size: { minimum: 1 } },
+          not: { required: ["sort"] }
+        },
+        else: {
           if: { properties: { size: { const: 0 } }, required: ["size"] },
           then: { required: ["facets"], properties: { facets: { minProperties: 1 } } }
-        }, {
-          if: { properties: { rerank: { type: "object" } }, required: ["rerank"] },
-          then: {
-            required: ["query"],
-            properties: { size: { minimum: 1 } },
-            not: { required: ["sort"] }
-          }
-        }]
+        }
       })
     },
     async ({
