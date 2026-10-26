@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pin the LambdaDB SDK to 0.10.0. Expand Query/Fetch/List and rerank limits to
+  1000 on supporting servers, retaining facet and collection-list limits of 100.
+  Vector dimensions now require integers from 64 to 4096 and similarity accepts
+  only cosine/euclidean; invalid requests and existing out-of-contract collection
+  metadata fail SDK validation. Update vector fixtures and native source guidance.
+
 - Synchronize the 0.1.5 release history and start the 0.1.6 development line.
 
 ## [0.1.5] - 2026-10-25

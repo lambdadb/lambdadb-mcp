@@ -238,7 +238,7 @@ test("facet JSON Schema, tool validation and SDK requests agree on optional/null
   ];
   for (const input of invalidFacets) assert.throws(() => queryCollectionRequestBodyToJSON(input));
   const accepted = h.requests.length;
-  for (const input of [...invalidFacets, { query: null }, { size: -1 }, { size: 101 }, { size: null }, { size: 1.5 }]) {
+  for (const input of [...invalidFacets, { query: null }, { size: -1 }, { size: 1001 }, { size: null }, { size: 1.5 }]) {
     assert.equal(validate({ collectionName: "items", ...input }).valid, false, JSON.stringify(input));
     assert.equal((await h.call("query_collection", { collectionName: "items", ...input })).isError, true, JSON.stringify(input));
   }
@@ -354,6 +354,37 @@ test("upsert and both delete forms preserve branch scope", async (t) => {
   }
 });
 
+test("expanded read limits reach HTTP while facets and collection pagination retain their limits", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs: [], total: 0, took: 1, isDocsInline: true } }) });
+  const tools = (await h.client.listTools()).tools;
+  const ids = Array.from({ length: 1000 }, (_, i) => `doc-${i}`);
+  for (const [name, input] of [
+    ["query_collection", { size: 1000 }],
+    ["list_docs", { size: 1000 }],
+    ["list_docs", { size: 1000, fields: { include: ["title"] } }],
+    ["fetch_docs", { ids }]
+  ]) {
+    const schema = tools.find(tool => tool.name === `lambdadb_${name}`).inputSchema;
+    const validate = new AjvJsonSchemaValidator().getValidator(schema);
+    assert.equal(validate({ collectionName: "items", ...input }).valid, true);
+    data(await h.call(name, { collectionName: "items", ...input }));
+    const request = h.requests.at(-1);
+    if (name === "fetch_docs") assert.deepEqual(request.body.ids, ids);
+    else if (request.method === "GET") assert.equal(request.url.searchParams.get("size"), "1000");
+    else assert.equal(request.body.size, 1000);
+    const invalid = { collectionName: "items", ...input,
+      ...(name === "fetch_docs" ? { ids: [...ids, "extra"] } : { size: 1001 }) };
+    const accepted = h.requests.length;
+    assert.equal(validate(invalid).valid, false);
+    assert.equal((await h.call(name, invalid)).isError, true);
+    assert.equal(h.requests.length, accepted);
+  }
+  const accepted = h.requests.length;
+  assert.equal((await h.call("list_collections", { size: 101 })).isError, true);
+  assert.equal((await h.call("query_collection", { collectionName: "items", facets: { category: { size: 101 } } })).isError, true);
+  assert.equal(h.requests.length, accepted);
+});
+
 test("invalid and unsupported inputs fail before any HTTP request", async (t) => {
   const h = await harness(t, { write: true });
   const cases = [
@@ -448,7 +479,7 @@ test("rerank schema and HTTP preserve omission, nulls, text, criteria order and 
   }
   data(await h.call("query_collection", { collectionName: "items", size: 0, facets: { category: {} }, rerank: null }));
   assert.equal(h.requests.at(-1).body.rerank, null);
-  for (const size of [1, 100]) {
+  for (const size of [1, 1000]) {
     const input = { ...query, size, rerank: { ...rerank, candidateSize: size }, facets: { category: {} },
       ref: { kind: "branch", name: "dev" }, consistentRead: true, fields: { include: ["title"] } };
     data(await h.call("query_collection", { collectionName: "items", ...input }));
@@ -461,7 +492,7 @@ test("invalid reranking fails before HTTP, including UTF-8 limits and scoring re
   const invalidConfigs = [
     { provider: "jev" }, { model: "other" }, { queryText: "\u3000" }, { queryText: "한".repeat(2731) },
     { fields: [] }, { fields: Array(9).fill("title") }, { fields: ["title", "title"] }, { fields: ["metadata..title"] },
-    { candidateSize: 0 }, { candidateSize: 101 }, { candidateSize: 1.5 }, { candidateSize: 9 },
+    { candidateSize: 0 }, { candidateSize: 1001 }, { candidateSize: 1.5 }, { candidateSize: 9 },
     { onFailure: "ignore" }, { criteria: [] }, { criteria: ["same", "same"] }, { criteria: ["\u3000", "answer"] },
     { criteria: ["한".repeat(683), "answer"] }, { criteria: Array.from({ length: 5 }, (_, i) => `${i}${"한".repeat(600)}`) },
     { criteria: Array.from({ length: 11 }, (_, i) => `${i}`) },
@@ -525,7 +556,7 @@ test("Bayesian and adjacent free-form queries preserve budgets, options and rera
   assert.match(tool.inputSchema.properties.candidateSize.description, /rerank.candidateSize/);
   const inputs = [
     { query: bayesian, size: 1, candidateSize: 1 },
-    { query: bayesian, size: 100, candidateSize: 100 },
+    { query: bayesian, size: 1000, candidateSize: 1000 },
     { query: bayesian, candidateSize: 30 },
     { query: bayesian, size: 2, candidateSize: 30, rerank: null },
     { query: { bayesian: [{ bool: [lexical] }, vector] }, size: 2, candidateSize: 30,
@@ -561,7 +592,7 @@ test("Bayesian semantic rejection stays server-owned and service failures remain
       .map(children => ({ query: { bayesian: children }, size: 2, candidateSize: 30 })),
     { query: { bool: [bayesian] }, candidateSize: 30 },
     { query: bayesian },
-    ...[0, -1, 101, 1].map(candidateSize => ({ query: bayesian, size: 2, candidateSize })),
+    ...[0, -1, 1001, 1].map(candidateSize => ({ query: bayesian, size: 2, candidateSize })),
     { query: bayesian, candidateSize: 30, rerank },
     ...[lexical, vector, ...["rrf", "mm", "l2"].map(method => ({ [method]: [lexical, vector] }))]
       .map(query => ({ query, candidateSize: 30 }))
@@ -585,6 +616,33 @@ test("Bayesian semantic rejection stays server-owned and service failures remain
 
 const embedding = { provider: "openai", model: "text-embedding-3-small", sourceField: "title" };
 
+test("SDK rejects unsupported vector dimensions and similarities in requests and collection metadata", async (t) => {
+  const invalidOptions = [
+    { dimensions: 63, similarity: "cosine" },
+    { dimensions: 4097, similarity: "cosine" },
+    { dimensions: 64.5, similarity: "cosine" },
+    { dimensions: 64, similarity: "dot_product" },
+    { dimensions: 64, similarity: "max_inner_product" }
+  ];
+  const h = await harness(t, { write: true });
+  for (const options of invalidOptions) {
+    for (const field of [
+      { type: "vector", ...options },
+      { type: "vector", embedding: { ...embedding, ...options } }
+    ]) {
+      assert.equal((await h.call("create_collection", {
+        collectionName: "items", indexConfigs: { embedding: field }
+      })).isError, true);
+    }
+  }
+  assert.equal(h.requests.length, 0, "Invalid vector options must fail before HTTP");
+  const metadata = await harness(t, { respond: () => ({ body: { collection: {
+    ...collection, indexConfigs: { embedding: { type: "vector", dimensions: 2, similarity: "cosine" } }
+  } } }) });
+  assert.equal((await metadata.call("get_collection", { collectionName: "items" })).isError, true);
+  assert.equal(metadata.requests.length, 1, "Invalid stored metadata must surface as an MCP error");
+});
+
 test("native, legacy and caller-provided vector configurations preserve explicit inputs and metadata", async (t) => {
   const h = await harness(t, { write: true, respond: req => req.method === "POST"
     ? { status: 201, body: { collection: created } }
@@ -597,10 +655,10 @@ test("native, legacy and caller-provided vector configurations preserve explicit
   const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
   for (const field of [
     { type: "vector", embedding },
-    { type: "vector", embedding: { ...embedding, dimensions: 512, similarity: "dot_product" } },
+    { type: "vector", embedding: { ...embedding, dimensions: 512, similarity: "euclidean" } },
     { type: "vector", managedEmbedding: true, embedding },
-    { type: "vector", dimensions: 2, similarity: "cosine" },
-    { type: "vector", managedEmbedding: false, dimensions: 2, similarity: "dot_product" },
+    { type: "vector", dimensions: 64, similarity: "cosine" },
+    { type: "vector", managedEmbedding: false, dimensions: 4096, similarity: "euclidean" },
     { type: "object", objectIndexConfigs: { embedding: { type: "vector", embedding } } }
   ]) {
     const input = { collectionName: "items", indexConfigs: { title: { type: "text" }, embedding: field } };

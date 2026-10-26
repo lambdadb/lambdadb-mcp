@@ -26,7 +26,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
         indexConfigs: z.record(z.string(), z.any()).refine(
           (value) => Object.keys(value).length > 0,
           "indexConfigs must contain at least one field."
-        ).describe("Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider, model, sourceField, dimensions?, similarity?}}; declare sourceField as text. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity."),
+        ).describe("Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider, model, sourceField, dimensions?, similarity?}}; sourceField may be an unindexed stored string path. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity. Supplied dimensions must be integers from 64 to 4096; similarity supports only cosine or euclidean. Model-specific native dimension maxima are server-validated."),
         description: z.string().max(255).optional(),
         tags: z.record(
           z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/),

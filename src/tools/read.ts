@@ -33,7 +33,7 @@ const rerankSchema = z.strictObject({
   queryText: z.string().min(1).describe("Required nonblank query text, at most 8 KiB UTF-8, including for raw vector queries."),
   fields: z.array(z.string().min(1)).min(1).max(8).meta({ uniqueItems: true })
     .describe("Unique stored scalar text paths in model input order; separate from returned fields projection."),
-  candidateSize: z.number().int().min(1).max(100).nullable().optional()
+  candidateSize: z.number().int().min(1).max(1000).nullable().optional()
     .describe("Merged candidate cap, at least final size. Omitted/null defaults to max(50, size); never changes knn.k."),
   onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
     .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures."),
@@ -103,11 +103,11 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(0).max(100).optional()
-          .describe("Documents to return (1–100), or 0 with nonempty facets."),
+        size: z.number().int().min(0).max(1000).optional()
+          .describe("Documents to return (1–1000), or 0 with nonempty facets."),
         // Preserve SDK/server validation and error classification for free-form queries.
         candidateSize: z.number().int().optional().describe(
-          "Bayesian without rerank requires 1 <= size <= candidateSize <= 100 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
+          "Bayesian without rerank requires 1 <= size <= candidateSize <= 1000 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
         ),
         query: z.record(z.string(), z.any()).optional().describe(
           "Free-form query; omit for match-all. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
@@ -191,7 +191,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(1).max(100).optional(),
+        size: z.number().int().min(1).max(1000).optional(),
         pageToken: z.string().optional(),
         ref: readRefSchema.optional(),
         filter: z.record(z.string(), z.any()).optional(),
@@ -232,7 +232,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        ids: z.array(z.string().min(1)).min(1).max(100),
+        ids: z.array(z.string().min(1)).min(1).max(1000),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "true requires a direct branch ref or omitted ref (main)."
