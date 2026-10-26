@@ -112,8 +112,8 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.8.1`, checked against
-the published package and [v0.8.1 release](https://github.com/lambdadb/lambdadb-typescript-client/releases/tag/v0.8.1).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.10.0`, checked against
+the published package and [v0.10.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.10.0/CHANGELOG.md).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -124,11 +124,13 @@ alone does not update previously published or installed MCP packages.
   Omitting `ref` reads from `main`. `consistentRead: true` is supported only by
   Query/Fetch with an omitted ref or a direct Branch ref. List has no `consistentRead`.
 - Query may omit `query` for match-all and accepts `facets` for keyword bucket counts
-  across all matches. Document `size` is 1–100, or 0 when at least one facet is supplied.
+  across all matches. Document `size` is 1–1000, or 0 when at least one facet is supplied.
   Up to five facet fields (including dotted paths) are allowed. Each field's options
   accept only `size`: an integer from 1–100, omitted, or `null`. Omitted/null bucket
   size uses the server default of 10; MCP forwards it unchanged. Empty `facets: {}`
   is accepted except with `size: 0`. Facet results survive inline and `docsUrl` responses.
+- Fetch accepts up to 1000 IDs; List accepts `size` from 1–1000 (server default 100).
+  These expanded read and rerank limits require a supporting server deployment.
 - List also accepts `filter`, `fields`, `includeVectors`, and `partitionFilter`.
   The SDK selects the extended POST endpoint when needed and preserves pagination tokens.
 - Upsert/Delete accept an optional `branch`; omitting it writes to `main`.
@@ -206,7 +208,7 @@ Bayesian requires exactly two signals. Boolean subqueries may combine clauses
 within a signal, but explicit boosts (even `1`) on either signal or its Boolean
 descendants and nested rank-fusion queries are unsupported. Do not supply fusion
 weights. Without rerank, top-level `candidateSize` is required and must satisfy
-`1 <= size <= candidateSize <= 100`; omitted `size` retains the server default of
+`1 <= size <= candidateSize <= 1000`; omitted `size` retains the server default of
 10. The budget is per signal, independent of final output size and `knn.k`.
 
 With rerank, omit top-level `candidateSize` and use `rerank.candidateSize`:
@@ -270,7 +272,7 @@ With write tools enabled, call `lambdadb_create_collection` with:
 
 Then call `lambdadb_upsert_docs` with
 `{"collectionName":"native-articles","docs":[{"id":"one","body":"Restore a saved version."}]}`.
-The source must be a text field; omit the generated vector from documents.
+The source may be an unindexed stored string path; omit the generated vector from documents.
 Use `knn.queryText` instead of `queryVector` for this field, including in either
 Bayesian example above. For example, call `lambdadb_query_collection` with:
 
@@ -283,6 +285,9 @@ Bayesian example above. For example, call `lambdadb_query_collection` with:
 ```
 
 Native embedding dimensions and similarity are optional and belong inside `embedding`.
+Supplied vector dimensions must be integers from 64 to 4096; similarity supports
+only `cosine` or `euclidean`. Model-specific native maxima remain server-validated.
+Existing collections with out-of-contract vector metadata fail SDK response validation.
 MCP does not infer a flag, provider, model or native embedding dimensions/similarity default.
 The SDK rejects `managedEmbedding: false` with `embedding`, and native embedding
 with top-level dimensions/similarity. Caller-provided vectors continue to use
@@ -325,7 +330,7 @@ ordered from lowest to highest relevance (2 KiB each, 8 KiB total UTF-8).
 Omitted/null criteria uses defaults; text, order, nulls and omission are preserved.
 
 Final `size`, vector-leg `knn.k`, and merged `rerank.candidateSize` are separate.
-Require `1 <= size <= candidateSize <= 100`; omitted/null candidateSize defaults
+Require `1 <= size <= candidateSize <= 1000`; omitted/null candidateSize defaults
 on the server to `max(50, size)`, with final size defaulting to 10. MCP never
 increases `k`. Reranking requires a scoring retrieval query, forbids `sort`,
 match-all and filter-only Boolean requests, and preserves ref/consistentRead

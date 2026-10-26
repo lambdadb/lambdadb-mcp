@@ -24,7 +24,7 @@
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
-    "@functional-systems/lambdadb": "0.8.1",
+    "@functional-systems/lambdadb": "0.10.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "zod": "^4.6.7"
   },
