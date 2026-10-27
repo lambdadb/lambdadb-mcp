@@ -46,7 +46,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_list_collections",
     {
       title: "List Collections",
-      description: "List collections in the configured LambdaDB project.",
+      description: "List one page of collections in the configured project. Follow nextPageToken when more inventory is needed; a page is not the full list. For field types and indexes of a chosen collection, use lambdadb_get_collection.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -71,7 +71,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_get_collection",
     {
       title: "Get Collection",
-      description: "Get metadata for a specific collection.",
+      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -96,7 +96,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Search documents with optional Bayesian hybrid search, native reranking and keyword facet counts across all matches. Omit query for match-all; size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status. Features require a supporting server; facets require newly built keyword indexes.",
+        "Search actual indexed fields; inspect metadata with lambdadb_get_collection first. Omit query for a small match-all sample. Results wrap document fields under docs[].doc; returned documents are not all matches. Empty results alone do not prove an error or indexing delay. Optional Bayesian hybrid search, native reranking and keyword facets require a supporting server; facets require newly built keyword indexes. size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -116,7 +116,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         rerank: rerankSchema,
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
-          "true requires a direct branch ref or omitted ref (main)."
+          "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429. Do not change the default just because a query is empty."
         ),
         includeVectors: z.boolean().optional(),
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
@@ -184,7 +184,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_list_docs",
     {
       title: "List Documents",
-      description: "List documents from a collection with pagination support.",
+      description: "List documents at the selected ref with pagination; follow nextPageToken when needed. This operation has no consistentRead overlay. Use lambdadb_fetch_docs for known IDs or lambdadb_query_collection for indexed search and recent ordinary writes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -225,7 +225,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_fetch_docs",
     {
       title: "Fetch Documents",
-      description: "Fetch specific documents from a collection by document ID.",
+      description: "Fetch known document IDs at the selected ref. Results wrap document fields under docs[].doc. Missing IDs are not necessarily errors: check the target/ref and, for known recent ordinary writes, consistentRead. Do not reinsert documents as a visibility check.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -235,7 +235,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         ids: z.array(z.string().min(1)).min(1).max(1000),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
-          "true requires a direct branch ref or omitted ref (main)."
+          "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429."
         ),
         includeVectors: z.boolean().optional(),
         fields: fieldsSchema.optional(),
