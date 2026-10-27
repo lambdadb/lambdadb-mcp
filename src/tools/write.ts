@@ -56,7 +56,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
           partitionConfig
         };
         const result = await client.createCollection(input);
-        return jsonResult("Collection created successfully.", result);
+        return jsonResult("Collection created; query-serving readiness has not been verified.", result);
       } catch (error) {
         throw new Error(formatLambdaDBError(error));
       }
@@ -68,7 +68,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Upsert Documents",
       description:
-        "Upsert documents into a collection. Keep payloads small enough for the standard API path.",
+        "Submit ordinary document upserts to an explicit writable branch (omitted branch is main). Keep payloads small enough for the standard API path. Acceptance does not prove committed indexing. For eligible pending writes use query/fetch with consistentRead on that branch; do not replay writes to wait for visibility. Inspect an uncertain outcome before any explicit retry.",
       annotations: {
         openWorldHint: false
       },
@@ -83,7 +83,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
         const client = createLambdaDBClient(config);
         const input: UpsertDocsInput = { docs, branch };
         const result = await client.collection(collectionName).docs.upsert(input);
-        return jsonResult("Documents upserted successfully.", result);
+        return jsonResult("Document upserts accepted; committed search visibility has not been verified.", result);
       } catch (error) {
         throw new Error(formatLambdaDBError(error));
       }

@@ -95,12 +95,16 @@ function data(result) {
 
 test("read-only is the default; write tools require explicit opt-in", async (t) => {
   const read = await harness(t);
+  assert.match(read.client.getInstructions(), /Only read tools are enabled/);
+  assert.ok(!read.client.getInstructions().includes("test-secret"));
   const tools = (await read.client.listTools()).tools;
   assert.equal(tools.length, 5);
   assert.ok(tools.every((tool) => tool.annotations.readOnlyHint === true));
   assert.equal((await read.call("create_collection", { collectionName: "items", indexConfigs: collection.indexConfigs })).isError, true);
   assert.equal(read.requests.length, 0);
   const write = await harness(t, { write: true });
+  assert.match(write.client.getInstructions(), /Write tools are enabled/);
+  assert.ok(!write.client.getInstructions().includes("test-secret"));
   const enabled = (await write.client.listTools()).tools;
   assert.equal(enabled.length, 8);
   const create = enabled.find((tool) => tool.name === "lambdadb_create_collection");
