@@ -12,59 +12,54 @@ and anything merged into `main` ships in the next release.
 
 | Channel | Committed version | Published version | Trigger | Git tag | npm dist-tag |
 | --- | --- | --- | --- | --- | --- |
-| Development | `X.Y.Z-dev.0` | `X.Y.Z-dev.N` (N ≥ 1, assigned by CI) | `main` push, explicitly enabled | None | dev |
+| Development | Last released `X.Y.Z` or `X.Y.Z-rc.M` (tagged) | `X.Y.(Z+1)-dev.N` after stable, `X.Y.Z-dev.N` after an RC (N ≥ 1, assigned by CI) | `main` push, explicitly enabled | None | dev |
 | Release candidate | `X.Y.Z-rc.N` | `X.Y.Z-rc.N` | Published GitHub prerelease `vX.Y.Z-rc.N` | `vX.Y.Z-rc.N` | rc |
 | Stable | `X.Y.Z` | `X.Y.Z` | Published GitHub release `vX.Y.Z` | `vX.Y.Z` | latest |
 
-Between releases, `main` carries the next version with the development
-placeholder `X.Y.Z-dev.0`; number 0 is never published. A release pull request
-sets the RC or stable version, and that exact merge commit on `main` is tagged.
-Published version, committed version and tag agree. Only these canonical forms
-are accepted, without leading zeroes or build suffixes. `package.json` and both
-root lockfile versions must match. MCP initialize reads its version from the
-installed package.json; there is no second version constant. The repository URL
-must identify this exact public GitHub repository.
+The committed version is always an RC or stable version: the most recently
+released version, whose tag `v<version>` exists, or the next version set by a
+merged release pull request that is not tagged yet. A development version is
+never committed; CI derives it from tags (see "Automatic dev publication"). Only
+a release pull request changes the committed version, and that exact merge commit
+on `main` is tagged. Published version, committed version and tag agree. Only
+these canonical forms are accepted, without leading zeroes or build suffixes.
+`package.json` and both root lockfile versions must match. MCP initialize reads
+its version from the installed package.json; there is no second version
+constant. The repository URL must identify this exact public GitHub repository.
 
 Change every version source at once with the version script. It keeps each
-file's formatting, accepts only committed forms (`X.Y.Z-dev.0`, `X.Y.Z-rc.N`,
-`X.Y.Z`) and fails unless all sources agree afterwards:
+file's formatting, accepts only committed forms (`X.Y.Z-rc.N`, `X.Y.Z`) and
+fails unless all sources agree afterwards. `npm run check` also rejects a
+committed development version:
 
 ```sh
 node scripts/version.mjs get               # print the committed version
 node scripts/version.mjs set 0.2.0-rc.1    # release pull request
-node scripts/version.mjs set 0.2.1-dev.0   # next development version
 ```
 
 The `CI` workflow (`.github/workflows/publish.yaml`) selects one run mode:
 
 - Pull requests into `main` and manual runs: validation only, no credentials
   and no live tests.
-- `main` push with `X.Y.Z-dev.0`: validation, the deployed live smoke against
-  the dev environment, then an automatic dev build (see below).
-- `main` push with `X.Y.Z-rc.N` or `X.Y.Z` (a release pull request merge):
-  validation plus the publication job's release metadata, changelog, ancestry,
-  pack and installed-package checks and the deployed live smoke against
-  production, with no publication. Tag only after it passes.
+- `main` push whose committed version is already tagged (`v<version>` exists on
+  `origin`): validation, the deployed live smoke against the dev environment,
+  then an automatic dev build (see below).
+- `main` push whose committed `X.Y.Z-rc.N` or `X.Y.Z` is not tagged yet (a
+  release pull request merge): validation plus the publication job's release
+  metadata, changelog, ancestry, pack and installed-package checks and the
+  deployed live smoke against production, with no publication. Tag only after
+  it passes. A committed development version fails the run.
 - Published GitHub Release: the same checks against the tag, including the
   production live smoke, then publication of its RC or stable version.
 
 Every publication-job run passes the deployed live smoke (see "Deployed live
 smoke gates") before any registry write; a smoke failure stops the job.
 
-After an RC or stable publication succeeds, the "Open next development version"
-workflow (`.github/workflows/next-dev-version.yaml`) opens a pull request that
-restores the placeholder: the same `X.Y.Z-dev.0` after an RC, or the next patch
-`X.Y.(Z+1)-dev.0` after a stable release. Change it with
-`node scripts/version.mjs set` if the next release is a minor or major version,
-then review and merge it. The branch is named after the release tag
-(`chore/next-dev-after-vX.Y.Z-rc.N`), so consecutive RCs each get their own pull
-request. Rerunning the workflow is safe: it reuses an existing branch and opens
-a pull request only when that branch has none in any state.
-Pull requests opened by GitHub Actions do not trigger CI, and `main` requires no
-status checks, so the workflow does not dispatch CI; run the `CI` workflow on the
-branch manually for checks before merging, and the `main` push runs the full
-checks when it merges. The workflow has `contents: write` and
-`pull-requests: write` and never publishes.
+`node scripts/version.mjs mode` selects the mode by querying tags on `origin`
+(`git ls-remote`), not the local checkout, so a stale or partial checkout cannot
+misclassify a commit; a failed query fails the run. Pushing the release tag is
+what switches later `main` pushes from verification back to development builds;
+no version change or follow-up pull request is needed after a release.
 
 The release records that follow, through "Historical bootstrap and 0.1.0
 status", are dated records from the earlier develop/main flow and are kept
@@ -270,8 +265,8 @@ a future release candidate.
 | Run mode | Event | Live target | Variable prefix |
 | --- | --- | --- | --- |
 | None | Pull request, manual run | None (no credentials) | None |
-| `dev` | `main` push with `X.Y.Z-dev.0` | Dev environment, then dev publication | `LAMBDADB_DEV_` |
-| `verify` | `main` push with `X.Y.Z-rc.N` or `X.Y.Z` | Production, verification only | `LAMBDADB_PROD_` |
+| `dev` | `main` push, committed version tagged on `origin` | Dev environment, then dev publication | `LAMBDADB_DEV_` |
+| `verify` | `main` push, committed `X.Y.Z-rc.N` or `X.Y.Z` not tagged yet | Production, verification only | `LAMBDADB_PROD_` |
 | `release` | Published GitHub Release | Production, then publication | `LAMBDADB_PROD_` |
 
 `node scripts/version.mjs mode` selects the run mode and its Variable prefix. A
@@ -412,29 +407,41 @@ bootstrap and trust setup. Only after authorizing ongoing dev publication, set i
 to `true` in GitHub **Settings → Secrets and variables → Actions → Variables**.
 This repository completed that activation; the variable was verified as `true` on
 2026-09-20 (KST). With it set, a reviewed `main` push whose committed version is
-`X.Y.Z-dev.0` publishes after validation and the dev live smoke pass, and a
+already tagged publishes after validation and the dev live smoke pass, and a
 rerun of its existing push workflow can publish. Pull requests, manual runs and
 release verification never publish. Disable the variable to stop future
 automatic publication; the job then still prepares and tests the dev artifact
 and runs the dev live smoke without a registry write. Do not cancel
 an in-progress registry write as rollback.
 
-The workflow checks out the exact push SHA and publishes `X.Y.Z-dev.N`, where N
-is the number of first-parent commits on `main` since the newest stable release
-tag (`vA.B.C`) reachable from that commit, or since the root commit when there is
-none. N is the same on every rerun of a commit, restarts at 1 after each stable
-release, and keeps increasing across the RCs of one version. Preparation fails
-unless `X.Y.Z` is newer than the newest stable tag, so a missed next-version
-change cannot publish a lower version, and fails for any committed dev version
-other than the `-dev.0` placeholder. Generated package/lock versions and
-`gitHead` (the source commit) exist only in the runner; no version commits, tags
-or GitHub Releases are created for dev builds. Disable force pushes/history
-rewrites; numbers can have gaps when pushes are superseded.
+The workflow checks out the exact push SHA and derives the development version
+from the tagged committed version: stable `X.Y.Z` builds `X.Y.(Z+1)-dev.N`, and
+RC `X.Y.Z-rc.M` builds `X.Y.Z-dev.N`, which sorts below that RC (as `-dev` sorts
+below `-rc`). N is the number of first-parent commits on `main` since the newest
+stable release tag (`vA.B.C`) reachable from that commit, or since the root
+commit when there is none. N is the same on every rerun of a commit, restarts at
+1 after each stable release, and keeps increasing across the RCs of one version.
+For example, committed `0.11.0` (tagged) builds `0.11.1-dev.N`, and committed
+`0.12.0-rc.1` (tagged) builds `0.12.0-dev.N`. Preparation fails for a committed
+development version, and when the derived version is not newer than the newest
+stable tag. Generated package/lock versions and `gitHead` (the source commit)
+exist only in the runner; no version commits, tags or GitHub Releases are
+created for dev builds. Disable force pushes/history rewrites; numbers can have
+gaps when pushes are superseded.
 
-The earlier develop flow numbered dev builds by all first-parent commits on
-`develop` (last published: `0.1.6-dev.21`). The trunk-based `main` starts at
-`0.2.0-dev.0`, so its dev builds sort above every earlier dev build and the next
-release is 0.2.0 unless a release pull request chooses otherwise.
+The `dev` dist-tag never moves backwards. Before the write, a derived version
+lower than the current `dev` dist-tag is skipped as `superseded` with a log
+notice, not a failure, and is never published, even if an earlier flow already
+published that version from another commit. The dev live smoke still runs.
+
+Transition from the placeholder model: `main` previously committed the
+`0.2.0-dev.0` placeholder and published `0.2.0-dev.1` and `0.2.0-dev.2`; the
+earlier develop flow published up to `0.1.6-dev.21`. The committed version
+returned to `0.1.5`, the latest release, so `main` pushes derive `0.1.6-dev.N`,
+which is below the `dev` dist-tag `0.2.0-dev.2` and is skipped. Dev publication
+resumes once a release pull request sets `0.2.0-rc.1` (or `0.2.0`) and that
+version is tagged: later pushes then derive `0.2.0-dev.N` or `0.2.1-dev.N`, above
+`0.2.0-dev.2` because N keeps counting from `v0.1.5`.
 
 Remote `main` HEAD is checked before preparation and immediately before the
 write; a commit that is no longer the head of `main` is skipped. Versions older
@@ -465,8 +472,8 @@ release if it was superseded in the pending queue and still needs publication.
    production live smoke and publishes the exact file to rc/latest with OIDC
    and provenance. A successful CI run alone
    is not publication evidence. Verify npm.
-5. Review and merge the next development version pull request opened by the
-   "Open next development version" workflow (see the release model above).
+5. No follow-up version change is needed: once the tag exists, later `main`
+   pushes derive development versions from it.
 
 Address RC feedback in new pull requests into `main` and release the next RC
 number. Never reuse a published version or move its tag.
