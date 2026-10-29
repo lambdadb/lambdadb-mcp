@@ -136,14 +136,16 @@ Optional write tools:
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.10.0`, checked against
-the published package and [v0.10.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.10.0/CHANGELOG.md).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.11.0`, checked against
+the published package and [v0.11.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/CHANGELOG.md).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
 - Collection creation requires a nonempty `indexConfigs` and accepts `description`,
   metadata `tags`, `partitionConfig`, and `snapshotRetentionInDays` (1–31).
   The SDK validates individual index configurations and accepts HTTP 201 responses.
+  Collection metadata includes the server-managed `id` field as `{ "type": "keyword" }`;
+  creation may omit it or send it back unchanged, so returned `indexConfigs` can be reused.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
   Omitting `ref` reads from `main`. `consistentRead: true` is supported only by
   Query/Fetch with an omitted ref or a direct Branch ref. List has no `consistentRead`.
@@ -296,9 +298,11 @@ With write tools enabled, call `lambdadb_create_collection` with:
 
 Then call `lambdadb_upsert_docs` with
 `{"collectionName":"native-articles","docs":[{"id":"one","body":"Restore a saved version."}]}`.
-The source may be an unindexed stored string path; omit the generated vector from documents.
-Use `knn.queryText` instead of `queryVector` for this field, including in either
-Bayesian example above. For example, call `lambdadb_query_collection` with:
+The source may be an unindexed stored string path. Omit the vector to generate it,
+or supply it directly to skip inference. Query this field with `knn.queryText`,
+ordered `knn.queryInputs` parts (`{ "type": "text" | "image", "value": "..." }`), or
+a direct `queryVector`, including in either Bayesian example above. Each KNN query
+uses exactly one of these inputs. For example, call `lambdadb_query_collection` with:
 
 ```json
 {
@@ -307,6 +311,32 @@ Bayesian example above. For example, call `lambdadb_query_collection` with:
   "size": 10
 }
 ```
+
+`embedding.provider` is `openai` or `cohere`. Use exactly one non-null source form:
+legacy `sourceField` (one stored text path) or `sources`, 1–16 ordered
+`{ "field": "...", "type": "text" | "image" }` mappings. OpenAI requires exactly one
+text source; Cohere accepts text and image sources (image values are stored strings
+or flat string arrays). For example, a Cohere field over text and images:
+
+```json
+{
+  "type": "vector",
+  "embedding": {
+    "provider": "cohere",
+    "model": "embed-v5.0-fast",
+    "dimensions": 256,
+    "sources": [
+      { "field": "product.description", "type": "text" },
+      { "field": "product.images", "type": "image" }
+    ]
+  }
+}
+```
+
+Stored metadata contains whichever source form the collection uses; MCP returns it
+unchanged. Path syntax/uniqueness, provider/model/source combinations and
+provider-specific dimensions (Cohere: 256, 512, 768, 1024, 1536 or 2048) remain
+server validations; model availability depends on the deployed endpoint.
 
 Native embedding dimensions and similarity are optional and belong inside `embedding`.
 Supplied vector dimensions must be integers from 64 to 4096; similarity supports
@@ -318,7 +348,7 @@ with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
 server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
-that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.8.0/docs/native-embeddings.md).
+that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-embeddings.md).
 
 <a id="optional-managed-reranking"></a>
 
@@ -327,7 +357,7 @@ that true flag. See the [native embedding contract](https://github.com/lambdadb/
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
 LambdaDB supplies provider credentials; only the existing project API key is needed.
-See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.7.0/docs/managed-reranking.md).
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-reranking.md).
 
 ```json
 {
@@ -346,10 +376,18 @@ See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescr
 }
 ```
 
-Provider/model are fixed. `queryText` is required nonblank text, at most 8 KiB
+Provider/model pairs are fixed: `typesafe` / `jev-1.13.0`, or `cohere` /
+`rerank-v5.0-pro` or `rerank-v5.0-fast`. Cohere reranking does not accept
+`criteria` (omit it or send `null`); other options are shared:
+
+```json
+{ "provider": "cohere", "model": "rerank-v5.0-fast", "queryText": "Restore a collection", "fields": ["title", "body"] }
+```
+
+`queryText` is required nonblank text, at most 8 KiB
 UTF-8, even with raw vectors. Rerank `fields` selects 1–8 unique stored scalar
 text paths in input order, independently of returned document projection.
-Optional `criteria` replaces the default with 2–10 distinct nonblank descriptions
+For TypeSafe, optional `criteria` replaces the default with 2–10 distinct nonblank descriptions
 ordered from lowest to highest relevance (2 KiB each, 8 KiB total UTF-8).
 Omitted/null criteria uses defaults; text, order, nulls and omission are preserved.
 
@@ -366,8 +404,9 @@ Results retain server order, precision and zero. Applied envelope `score` is the
 final evaluation score in [0,1], not a probability; envelope `retrievalScore`
 retains the search score. Top-level `rerank` retains status (`applied`, `skipped`,
 `fallback`), provider/model, optional resolvedModel, counts, stage took, optional
-criteriaVersion and reason. Applied criteriaVersion is `default-relevance-v1`
-or `custom`; `custom` is not a unique rubric identity. `maxScore` retains zero;
+criteriaVersion and reason. Applied TypeSafe criteriaVersion is `default-relevance-v1`
+or `custom`; `custom` is not a unique rubric identity. Applied Cohere reranking
+reports `cohere-relevance-v1`. `maxScore` retains zero;
 empty results omit it and report skipped/noCandidates with zero counts.
 Without reranking, rerank metadata and retrievalScore are absent. Metadata and
 scores survive `docsUrl` downloads.
@@ -441,8 +480,9 @@ arrays/errors and local environment-file loading. Facet tests validate the publi
 MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-only,
 document+facet, omitted/null/default bucket options, boundaries, invalid requests,
 and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,
-local bounds/UTF-8 rejection, score envelopes, skipped/fallback results and
-metadata downloads. Bayesian tests cover untouched free-form requests, candidate
+local bounds/UTF-8 rejection, Cohere models without criteria, score envelopes,
+skipped/fallback results and metadata downloads. Embedding tests cover OpenAI/Cohere
+`sourceField` and `sources` forms, stored metadata, and the server-managed `id` field. Bayesian tests cover untouched free-form requests, candidate
 budgets, server errors, native/legacy configurations and contradictory inputs.
 They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
@@ -472,8 +512,9 @@ temporary collection in cleanup, and verifies that the collection is absent.
 Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
 operations are not exposed as MCP tools. This test is separate from `npm run check`.
 
-Native reranking has a separate live suite because it requires an enabled
-`typesafe` / `jev-1.13.0` model and can incur inference cost. Use the same explicitly
+Native reranking has a separate live suite because it requires enabled
+`typesafe` / `jev-1.13.0` and Cohere `rerank-v5.0-fast` / `rerank-v5.0-pro` models
+and can incur inference cost. Use the same explicitly
 authorized development project and write opt-in, with an additional inference opt-in:
 
 ```bash
@@ -481,7 +522,8 @@ LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM
 ```
 
 It creates one temporary collection and two synthetic documents. It verifies
-omitted/null retrieval behavior, applied default and custom criteria, final size
+omitted/null retrieval behavior, applied default and custom criteria, applied
+Cohere reranking with `cohere-relevance-v1`, final size
 versus candidate count, envelope evaluation/retrieval scores, inline and actual
 `docsUrl` order/precision/metadata preservation, download credential isolation,
 and empty `skipped` results. Only short stored text is sent for evaluation; the
@@ -494,14 +536,15 @@ production deployment or billing readiness. These live suites are outside defaul
 checks and credential-free CI.
 
 Bayesian/native embedding verification also requires explicit inference
-opt-in for native embedding with OpenAI and native reranking with TypeSafe:
+opt-in for native embedding with OpenAI and Cohere and native reranking with TypeSafe:
 
 ```bash
 LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:bayesian
 ```
 
-This suite creates one owned collection with native, legacy and caller-provided
-vector fields. It checks real embedding generation and text queries, Bayesian
+This suite creates one owned collection with native, legacy, Cohere `sources` and
+caller-provided vector fields. It checks real embedding generation, text queries and
+Cohere `queryInputs`, Bayesian
 budgets and server rejections, existing fusion methods, applied reranking with
 retrieval scores and actual docsUrl hydration, then deletes and verifies absence.
 These live suites are outside default checks and credential-free CI. Verify the

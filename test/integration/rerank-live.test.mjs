@@ -19,7 +19,7 @@ async function eventually(operation, label, timeoutMs = 300_000) {
 }
 
 // Separate opt-in: real inference can incur cost and requires a native reranking model enabled by LambdaDB.
-test("live MCP native reranking, custom criteria, empty results, downloads and cleanup", { timeout: 900_000 }, async () => {
+test("live MCP native reranking, custom criteria, Cohere models, empty results, downloads and cleanup", { timeout: 900_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
   assert.equal(process.env.LAMBDADB_RUN_LIVE_RERANK_TESTS, "1", "Managed inference requires explicit opt-in");
   const config = getEnvConfig();
@@ -79,11 +79,11 @@ test("live MCP native reranking, custom criteria, empty results, downloads and c
     return JSON.parse(result.content[0].text.split("\n\n").slice(1).join("\n\n"));
   }
 
-  function assertApplied(result, criteriaVersion, size, retrieval) {
+  function assertApplied(result, criteriaVersion, size, retrieval, config = rerank) {
     const metadata = result.rerank;
     assert.equal(metadata?.status, "applied", "Inference must apply; fallback is not a passing smoke");
-    assert.equal(metadata.provider, rerank.provider);
-    assert.equal(metadata.model, rerank.model);
+    assert.equal(metadata.provider, config.provider);
+    assert.equal(metadata.model, config.model);
     assert.equal(metadata.criteriaVersion, criteriaVersion);
     assert.equal(metadata.candidateCount, 2);
     assert.equal(metadata.scoredCount, 2);
@@ -135,6 +135,13 @@ test("live MCP native reranking, custom criteria, empty results, downloads and c
     assertApplied(defaults, "default-relevance-v1", 1, retrieval);
     assert.equal(docsUrl, undefined, "Projected result must be inline");
     console.info("[live:rerank] Default criteria, final size and inline envelopes: PASS");
+
+    for (const model of ["rerank-v5.0-fast", "rerank-v5.0-pro"]) {
+      const cohere = { ...rerank, provider: "cohere", model };
+      assertApplied(await call("query_collection", { ...input, size: 1, rerank: cohere }), "cohere-relevance-v1", 1, retrieval, cohere);
+      assert.equal(docsUrl, undefined, "Projected result must be inline");
+    }
+    console.info("[live:rerank] Cohere rerank-v5.0-fast/pro without criteria: PASS");
 
     const custom = await call("query_collection", { query, size: 2, rerank: { ...rerank, criteria: [
       "Does not explain restoring a collection.",

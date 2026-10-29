@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Pin the LambdaDB SDK to 0.11.0. `lambdadb_query_collection` rerank now accepts
+  `cohere` with `rerank-v5.0-pro` or `rerank-v5.0-fast` (criteria omitted or null)
+  besides `typesafe` / `jev-1.13.0`; mixed provider/model pairs and Cohere criteria
+  fail before HTTP, and applied Cohere results report `cohere-relevance-v1`.
+  Collection creation forwards the `cohere` embedding provider and ordered
+  `embedding.sources` (exactly one non-null `sourceField` or `sources`), and
+  `lambdadb_get_collection` accepts stored configurations that use `sources`, which
+  failed SDK 0.10.0 response validation. Tool descriptions and the README document
+  `knn.queryInputs`, direct vectors on native fields, and the server-managed `id`
+  field that may be sent back unchanged. The rerank and Bayesian live suites now
+  cover Cohere reranking, Cohere `sources` embeddings and `queryInputs`.
+
 - Derive development versions from tags instead of a committed placeholder. The
   committed version is always the last released RC/stable version, and only a
   release pull request changes it; the "Open next development version" workflow
