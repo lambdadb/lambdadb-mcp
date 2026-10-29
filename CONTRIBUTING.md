@@ -45,14 +45,14 @@ variable. Setup is complete and `NPM_DEV_PUBLISH_ENABLED=true` as verified on
 succeeds. PRs and manual workflow runs cannot publish.
 Follow [RELEASING.md](RELEASING.md) for every publication action.
 
-Prepare rc/stable metadata on a branch from `develop` and review it into
-`develop`, then promote with a `develop` -> `main` PR merged with a merge commit.
-Restore the next dev base on develop through a PR, and after every promotion and
-release tag synchronize main back into develop with a `main` -> `develop`
-merge-commit PR (never squash or rebase it) so the tag is reachable from develop.
-Do not leave stable metadata on develop after the release, where automatic
-version generation requires a dev version. See
-[RELEASING.md](RELEASING.md#branch-flow) for the full branch flow.
+Cut `release/X.Y.Z` from develop for rc/stable metadata and RC fixes, move
+develop to its next dev base, and promote the release branch to `main` with a
+merge commit. After every promotion/tag, back-merge `main` (not the release
+branch) into develop with a `main` -> `develop` merge-commit PR (never squash or
+rebase it), keeping develop's dev base. Hotfixes branch from main as
+`hotfix/X.Y.Z`. Do not leave stable metadata on develop, where automatic version
+generation requires a dev version. See [RELEASING.md](RELEASING.md#branch-flow)
+for the full branch flow.
 Tags, GitHub Releases and bootstrap publication are explicit maintainer actions.
 
 Treat environment variables, tool names/schemas, read-only defaults, ref semantics,

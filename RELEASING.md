@@ -281,41 +281,56 @@ in the pending queue and still needs publication.
 - Feature and fix work branches from current `develop` and opens a PR with
   `develop` explicitly selected as the base (GitHub defaults to `main`). Merge
   with **Squash and merge**.
-- Release preparation also merges into `develop`. Do not add release-only
-  commits directly to `main`. Promotion is a `develop` -> `main` PR merged with
-  **Create a merge commit**; tags and GitHub Releases come from the resulting
-  reviewed main commit.
-- After every promotion and release tag, and whenever `main` contains other
-  commits absent from `develop` (a hotfix, or an update such as a Dependabot PR
-  merged into `main`), open a `main` -> `develop` PR and merge it with
-  **Create a merge commit**. The promotion merge commit itself is absent from
-  develop, so without this sync the release tag is unreachable from develop. No
-  `release/sync-*` branch is needed. Never squash or rebase a synchronization
-  PR: that makes the trees equal without ancestry, so already-synchronized
-  commits reappear in later comparisons and release tags become unreachable from
-  develop. Verify with `git merge-base --is-ancestor <main-commit> origin/develop`.
-  If it conflicts (for example on version metadata after a hotfix), merge
-  `develop` into a branch created from `main`, keep develop's dev base, and merge
-  that branch into develop with a merge commit.
-- Hotfix: branch from `main`, open a PR into `main` merged with a merge commit,
-  release from main, then synchronize main into develop as above.
+- Release branch: cut `release/X.Y.Z` from the reviewed develop commit. Release
+  preparation and any RC fixes land on it through PRs into the release branch.
+  develop keeps receiving feature work; nothing merged into develop after the cut
+  ships in this release. Then move develop to the next `X.Y.Z-dev.N` base through
+  a PR so develop never carries rc/stable metadata. When there is nothing to
+  stabilize the release branch may be skipped and develop promoted directly, but
+  develop must then carry the rc/stable metadata and its dev publication job
+  fails closed (see below) until the next dev base is restored.
+- Promotion: open a `release/X.Y.Z` -> `main` PR (or `develop` -> `main` when
+  skipping the release branch) and merge it with **Create a merge commit**. Tag
+  and publish from the resulting reviewed main merge commit. Each RC repeats this:
+  fix on the release branch, promote, tag the next `-rc.N`.
+- Back-merge: after every promotion/tag, open a `main` -> `develop` PR and merge it
+  with **Create a merge commit**. Back-merge `main`, not the release branch: only
+  main carries the promotion merge commit and its tag, plus any hotfix or
+  Dependabot change merged straight into main. No `release/sync-*` branch is
+  needed. Never squash or rebase a back-merge PR: that makes the trees equal
+  without ancestry, so later comparisons repeat merged commits and release tags
+  become unreachable from develop. Afterwards
+  `git merge-base --is-ancestor origin/main origin/develop` must succeed.
+  Resolve conflicts in the back-merge PR, typically keeping develop's newer
+  content; version metadata conflicts keep develop's `X.Y.Z-dev.N` base. Because
+  main is protected, GitHub's conflict editor moves the PR to a new head branch;
+  the PR is still merged with a merge commit.
+- Hotfix: cut `hotfix/X.Y.Z` from `main`, open a PR into main merged with a merge
+  commit, tag and publish, then back-merge main into develop as above.
+- Delete `release/*` and `hotfix/*` branches after their final promotion PR
+  merges.
 
-After lambdadb/lambdadb-iac#22 is applied, organization rulesets enforce this:
-`develop` and `main` block deletion and force pushes and accept changes only
-through PRs; `develop` allows squash and merge commits (no rebase), and `main`
-allows merge commits only. There are no bypass actors; tags are not affected.
+CI triggers cover only PRs into and pushes to `develop`/`main`, so PRs into a
+release or hotfix branch are not validated by CI; the PR into main is. Only
+develop pushes publish dev versions; a develop push whose version is not
+`X.Y.Z-dev.N` fails closed in `scripts/dev-release.mjs prepare` and publishes
+nothing.
+
+After lambdadb/lambdadb-iac#22 is applied, organization rulesets enforce: `develop`
+and `main` block deletion and force pushes and accept changes only through PRs;
+`develop` allows squash and merge commits (no rebase), and `main` allows merge
+commits only. There are no bypass actors; tags and `release/*`/`hotfix/*`
+branches are not covered.
 
 ## Explicit rc/stable publication
 
-1. Prepare matching package/lock metadata and a dated
-   `## [VERSION] - YYYY-MM-DD` changelog entry on a branch from current
-   `develop`, and review it into develop. Retain validation/live-test status for
-   the candidate. While develop carries rc/stable metadata, the develop push's
-   dev publication job fails closed in `scripts/dev-release.mjs prepare` (it
-   requires `X.Y.Z-dev.N`) and publishes nothing; merge only release fixes into
-   develop until promotion.
-2. Promote with a `develop` -> `main` PR merged with **Create a merge commit**,
-   and validate the resulting main commit as the candidate.
+1. Cut `release/X.Y.Z` from the reviewed develop commit and prepare matching
+   package/lock metadata and a dated `## [VERSION] - YYYY-MM-DD` changelog entry
+   on it through a reviewed PR. Retain validation/live-test status for the
+   candidate. Move develop to its next dev base through a PR.
+2. Promote with a `release/X.Y.Z` -> `main` PR merged with
+   **Create a merge commit**, and validate the resulting main commit as the
+   candidate.
 3. Ensure `publish.yaml` exists on the default branch (`main`). The dev push
    path does not require that promotion, but GitHub Release handling does.
 4. Obtain authorization, tag the verified main commit as `vVERSION`, and publish
@@ -325,11 +340,9 @@ allows merge commits only. There are no bypass actors; tags are not affected.
    changelog and ancestry in origin/main; it packs/tests once and publishes the
    exact file to rc/latest with OIDC and provenance. A successful CI run alone
    is not publication evidence. Verify npm.
-6. Restore the next `X.Y.Z-dev.N` base on develop through a PR once promotion
-   has merged; it does not affect main. Then, after every release tag,
-   synchronize main into develop with a `main` -> `develop` merge-commit PR;
-   without it the promotion merge commit and release tag are unreachable from
-   develop.
+6. Back-merge main into develop with a `main` -> `develop` merge-commit PR,
+   keeping develop's dev base. For another RC, fix on the release branch and
+   repeat from step 2; delete the release branch after the final promotion.
 
 ## Duplicate prevention, registry lag and recovery
 
