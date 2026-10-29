@@ -276,21 +276,57 @@ race. A newer pending job can replace an older pending job; this does not promis
 a package for every rapid merge. Re-run an explicit release if it was superseded
 in the pending queue and still needs publication.
 
+## Branch flow
+
+- Feature and fix work branches from current `develop` and opens a PR with
+  `develop` explicitly selected as the base (GitHub defaults to `main`). Merge
+  with **Squash and merge**.
+- Release preparation also merges into `develop`. Do not add release-only
+  commits directly to `main`. Promotion is a `develop` -> `main` PR merged with
+  **Create a merge commit**; tags and GitHub Releases come from the resulting
+  reviewed main commit.
+- Whenever `main` contains commits absent from `develop` (the promotion merge
+  commit, a hotfix, or an update such as a Dependabot PR merged into `main`),
+  open a `main` -> `develop` PR and merge it with **Create a merge commit**. No
+  `release/sync-*` branch is needed. Never squash or rebase a synchronization
+  PR: that makes the trees equal without ancestry, so already-synchronized
+  commits reappear in later comparisons and release tags become unreachable from
+  develop. Verify with `git merge-base --is-ancestor <main-commit> origin/develop`.
+  If it conflicts (for example on version metadata after a hotfix), merge
+  `develop` into a branch created from `main`, keep develop's dev base, and merge
+  that branch into develop with a merge commit.
+- Hotfix: branch from `main`, open a PR into `main` merged with a merge commit,
+  release from main, then synchronize main into develop as above.
+
+After lambdadb/lambdadb-iac#22 is applied, organization rulesets enforce this:
+`develop` and `main` block deletion and force pushes and accept changes only
+through PRs; `develop` allows squash and merge commits (no rebase), and `main`
+allows merge commits only. There are no bypass actors; tags are not affected.
+
 ## Explicit rc/stable publication
 
 1. Prepare matching package/lock metadata and a dated
-   `## [VERSION] - YYYY-MM-DD` changelog entry on a release branch. Review into
-   main and retain validation/live-test status for the candidate.
-2. Ensure `publish.yaml` exists on the default branch (`main`). The dev push
+   `## [VERSION] - YYYY-MM-DD` changelog entry on a branch from current
+   `develop`, and review it into develop. Retain validation/live-test status for
+   the candidate. While develop carries rc/stable metadata, the develop push's
+   dev publication job fails closed in `scripts/dev-release.mjs prepare` (it
+   requires `X.Y.Z-dev.N`) and publishes nothing; merge only release fixes into
+   develop until promotion.
+2. Promote with a `develop` -> `main` PR merged with **Create a merge commit**,
+   and validate the resulting main commit as the candidate.
+3. Ensure `publish.yaml` exists on the default branch (`main`). The dev push
    path does not require that promotion, but GitHub Release handling does.
-3. Obtain authorization, tag the verified main commit as `vVERSION`, and publish
+4. Obtain authorization, tag the verified main commit as `vVERSION`, and publish
    the GitHub Release with `prerelease: true` for rc or `false` for stable.
    Draft releases do not publish. Do not create a dev GitHub Release.
-4. The workflow validates the release tag, package versions, prerelease flag,
+5. The workflow validates the release tag, package versions, prerelease flag,
    changelog and ancestry in origin/main; it packs/tests once and publishes the
    exact file to rc/latest with OIDC and provenance. A successful CI run alone
-   is not publication evidence. Verify npm and synchronize release changes into
-   develop with its next dev base via PR.
+   is not publication evidence. Verify npm.
+6. Restore the next `X.Y.Z-dev.N` base on develop through a PR once promotion
+   has merged; it does not affect main. Then synchronize main into develop with
+   a `main` -> `develop` merge-commit PR so the release tag is reachable from
+   develop.
 
 ## Duplicate prevention, registry lag and recovery
 

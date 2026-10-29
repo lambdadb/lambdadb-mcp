@@ -3,8 +3,9 @@
 ## Branches and validation
 
 Create a focused `feat/*` or `fix/*` branch from current `develop`; open PRs with
-`develop` explicitly selected as the base. Keep local credentials and unrelated
-changes outside the PR. Use a dedicated worktree when another checkout is in use.
+`develop` explicitly selected as the base, and merge them with **Squash and
+merge**. Keep local credentials and unrelated changes outside the PR. Use a
+dedicated worktree when another checkout is in use.
 
 Use Node.js 22.14.0 or newer. CI verifies the exact minimum 22.14.0 and current
 22.x and 24.x LTS releases. Node 20 is end-of-life and is no longer supported.
@@ -44,10 +45,13 @@ variable. Setup is complete and `NPM_DEV_PUBLISH_ENABLED=true` as verified on
 succeeds. PRs and manual workflow runs cannot publish.
 Follow [RELEASING.md](RELEASING.md) for every publication action.
 
-Prepare rc/stable metadata on a release branch and review it into `main`. Promote
-with merge commits to preserve main/develop ancestry. When synchronizing main
-back into develop through a PR, include the next dev base. Do not leave stable
-metadata on develop, where automatic version generation requires a dev version.
+Prepare rc/stable metadata on a branch from `develop` and review it into
+`develop`, then promote with a `develop` -> `main` PR merged with a merge commit.
+Restore the next dev base on develop through a PR, and synchronize main back into
+develop with a `main` -> `develop` merge-commit PR (never squash or rebase it).
+Do not leave stable metadata on develop after the release, where automatic
+version generation requires a dev version. See
+[RELEASING.md](RELEASING.md#branch-flow) for the full branch flow.
 Tags, GitHub Releases and bootstrap publication are explicit maintainer actions.
 
 Treat environment variables, tool names/schemas, read-only defaults, ref semantics,
