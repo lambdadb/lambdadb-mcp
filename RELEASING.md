@@ -285,9 +285,11 @@ in the pending queue and still needs publication.
   commits directly to `main`. Promotion is a `develop` -> `main` PR merged with
   **Create a merge commit**; tags and GitHub Releases come from the resulting
   reviewed main commit.
-- Whenever `main` contains commits absent from `develop` (the promotion merge
-  commit, a hotfix, or an update such as a Dependabot PR merged into `main`),
-  open a `main` -> `develop` PR and merge it with **Create a merge commit**. No
+- After every promotion and release tag, and whenever `main` contains other
+  commits absent from `develop` (a hotfix, or an update such as a Dependabot PR
+  merged into `main`), open a `main` -> `develop` PR and merge it with
+  **Create a merge commit**. The promotion merge commit itself is absent from
+  develop, so without this sync the release tag is unreachable from develop. No
   `release/sync-*` branch is needed. Never squash or rebase a synchronization
   PR: that makes the trees equal without ancestry, so already-synchronized
   commits reappear in later comparisons and release tags become unreachable from
@@ -324,8 +326,9 @@ allows merge commits only. There are no bypass actors; tags are not affected.
    exact file to rc/latest with OIDC and provenance. A successful CI run alone
    is not publication evidence. Verify npm.
 6. Restore the next `X.Y.Z-dev.N` base on develop through a PR once promotion
-   has merged; it does not affect main. Then synchronize main into develop with
-   a `main` -> `develop` merge-commit PR so the release tag is reachable from
+   has merged; it does not affect main. Then, after every release tag,
+   synchronize main into develop with a `main` -> `develop` merge-commit PR;
+   without it the promotion merge commit and release tag are unreachable from
    develop.
 
 ## Duplicate prevention, registry lag and recovery

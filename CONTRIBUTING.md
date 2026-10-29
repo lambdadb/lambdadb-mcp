@@ -47,8 +47,9 @@ Follow [RELEASING.md](RELEASING.md) for every publication action.
 
 Prepare rc/stable metadata on a branch from `develop` and review it into
 `develop`, then promote with a `develop` -> `main` PR merged with a merge commit.
-Restore the next dev base on develop through a PR, and synchronize main back into
-develop with a `main` -> `develop` merge-commit PR (never squash or rebase it).
+Restore the next dev base on develop through a PR, and after every promotion and
+release tag synchronize main back into develop with a `main` -> `develop`
+merge-commit PR (never squash or rebase it) so the tag is reachable from develop.
 Do not leave stable metadata on develop after the release, where automatic
 version generation requires a dev version. See
 [RELEASING.md](RELEASING.md#branch-flow) for the full branch flow.
