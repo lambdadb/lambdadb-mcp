@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { latestStableTag, nextDevVersion, readVersion, runMode, setVersion } from '../scripts/version.mjs';
+import { latestStableTag, nextDevVersion, readVersion, runMode, setVersion, smokePrefix } from '../scripts/version.mjs';
 
 function fixture(t, version = '0.2.0-dev.0') {
   const root = mkdtempSync(join(tmpdir(), 'mcp-version-'));
@@ -75,6 +75,13 @@ test('the run mode follows the event and the committed version on main pushes', 
   }
 });
 
+test('dev builds smoke against the dev environment; verification and releases against production', () => {
+  assert.equal(smokePrefix('dev'), 'LAMBDADB_DEV_');
+  assert.equal(smokePrefix('verify'), 'LAMBDADB_PROD_');
+  assert.equal(smokePrefix('release'), 'LAMBDADB_PROD_');
+  for (const bad of ['', undefined, 'pull_request', 'DEV']) assert.throws(() => smokePrefix(bad), /Unknown run mode/);
+});
+
 test('the version CLI reports the run mode to GitHub outputs', t => {
   const f = fixture(t);
   const output = join(f.root, 'output');
@@ -82,7 +89,7 @@ test('the version CLI reports the run mode to GitHub outputs', t => {
     { cwd: f.root, encoding: 'utf8', env: { PATH: process.env.PATH, GITHUB_OUTPUT: output, ...env } });
   assert.equal(run(['get']).stdout, '0.2.0-dev.0\n');
   assert.equal(run(['mode'], { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }).status, 0);
-  assert.equal(readFileSync(output, 'utf8'), 'mode=dev\n');
+  assert.equal(readFileSync(output, 'utf8'), 'mode=dev\nsmoke_prefix=LAMBDADB_DEV_\n');
   assert.notEqual(run(['mode'], { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/develop' }).status, 0);
   assert.equal(run(['set', '0.2.0-rc.1']).stdout, '0.2.0-rc.1\n');
   assert.equal(run(['next-dev', '0.2.0']).stdout, '0.2.1-dev.0\n');

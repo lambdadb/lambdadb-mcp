@@ -1,6 +1,6 @@
 # Validate pull requests and main; on main pushes, publish a dev build for the committed
 # X.Y.Z-dev.0 placeholder or verify a committed RC/stable version without publication;
-# publish RC/stable GitHub Releases.
+# publish RC/stable GitHub Releases. Publication runs gate on deployed live smoke tests.
 name: CI
 
 on:
@@ -48,7 +48,7 @@ jobs:
       (github.event_name == 'release' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
@@ -101,6 +101,24 @@ jobs:
           MCP_TARBALL=$(node --input-type=module -e 'import fs from "node:fs"; const file=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/package.json","utf8"))[0].filename; console.log(`${process.env.RUNNER_TEMP}/${file}`);')
           npm run test:package -- "$MCP_TARBALL"
           echo "tarball=$MCP_TARBALL" >> "$GITHUB_OUTPUT"
+      # Dev builds run every live suite against the dev environment; release verification and
+      # RC/stable releases against production. A missing Variable stays empty and fails the run.
+      - name: Authenticate smoke tests to AWS
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars[format('{0}SMOKE_AWS_ROLE_ARN', steps.mode.outputs.smoke_prefix)] }}
+          aws-region: ap-northeast-2
+          role-session-name: mcp-smoke-${{ github.run_id }}
+      - name: Run deployed live smoke tests
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        env:
+          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_SMOKE_SECRET_ARN: ${{ vars[format('{0}SMOKE_SECRET_ARN', steps.mode.outputs.smoke_prefix)] }}
+        run: |
+          echo "Live smoke target: $LAMBDADB_BASE_URL"
+          node scripts/run-live-smoke.mjs
       - name: Publish development version and verify registry state
         if: >-
           steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&

@@ -505,6 +505,13 @@ retrieval scores and actual docsUrl hydration, then deletes and verifies absence
 These live suites are outside default checks and credential-free CI. Verify the
 target's deployment provenance before running; the source pin alone is insufficient.
 
+To run all three live suites one after another with every opt-in, as the
+publication workflow does (see [RELEASING.md](RELEASING.md)):
+
+```bash
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_DEV_PROJECT npm run test:live:all
+```
+
 If the environment file is outside the worktree:
 
 ```bash

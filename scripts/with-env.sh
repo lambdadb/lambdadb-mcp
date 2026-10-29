@@ -13,7 +13,8 @@ else
   ENV_FILE=.env
 fi
 
-if [[ ! -f "${ENV_FILE}" ]]; then
+# /dev/null loads no file, so only exported variables apply (used by the deployed live smoke).
+if [[ "${ENV_FILE}" != /dev/null && ! -f "${ENV_FILE}" ]]; then
   echo "Missing environment file: ${ENV_FILE}. Copy .env.example to .env.local or set LAMBDADB_ENV_FILE." >&2
   exit 1
 fi

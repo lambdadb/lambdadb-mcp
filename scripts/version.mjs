@@ -82,6 +82,16 @@ export function runMode({ event, ref, version }) {
   return 'verify';
 }
 
+/**
+ * Repository Variable prefix of the deployed live smoke target: dev builds run against the dev
+ * environment; release verification and RC/stable releases run against production.
+ */
+export function smokePrefix(mode) {
+  if (mode === 'dev') return 'LAMBDADB_DEV_';
+  if (mode === 'verify' || mode === 'release') return 'LAMBDADB_PROD_';
+  throw new Error(`Unknown run mode ${mode}.`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const [command, value, ...rest] = process.argv.slice(2);
@@ -94,8 +104,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else if (command === 'mode' && value === undefined) {
       const version = readVersion(process.cwd());
       const mode = runMode({ event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF, version });
-      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\n`);
-      console.log(`Committed version ${version}; run mode ${mode}`);
+      const prefix = smokePrefix(mode);
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\nsmoke_prefix=${prefix}\n`);
+      console.log(`Committed version ${version}; run mode ${mode}; live smoke ${prefix}*`);
     } else {
       throw new Error('Usage: node scripts/version.mjs get | set <version> | next-dev <released-version> | mode');
     }

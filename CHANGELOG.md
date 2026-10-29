@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Gate every publication run on the deployed live smoke: dev builds run all live
+  suites against the dev environment before publication, and release
+  verification and GitHub Releases run them against production. The project key
+  is read from Secrets Manager through a GitHub OIDC role and passed only to the
+  test process. `npm run test:live:all` runs every live suite sequentially.
+
 - Move releases to trunk-based `main`; `develop` is retired. `main` carries the
   next version as `X.Y.Z-dev.0` (now `0.2.0-dev.0`), and each eligible merge
   publishes `X.Y.Z-dev.N`, where N counts first-parent commits since the newest

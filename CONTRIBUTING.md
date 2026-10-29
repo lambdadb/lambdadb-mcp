@@ -28,14 +28,20 @@ lifecycle scripts in a temporary consumer directory, and runs the MCP contracts
 against the installed executable over stdio. An optional tarball argument tests
 an already packed file without rebuilding it. Fixtures use loopback HTTP and
 synthetic credentials; they never call a LambdaDB service. Live verification is
-separate and requires explicit designation of a development project.
+separate and requires explicit designation of a project. `npm run test:live:all`
+runs every live suite sequentially; the publication job runs it as a deployed
+smoke gate (dev environment for dev builds, production for release verification
+and releases) before any registry write. See RELEASING.md for the gates and how
+to run them locally.
 
 The `CI` workflow in `.github/workflows/publish.yaml` runs for PRs into and pushes
 to `main`, manual validation and published GitHub Releases. Require the
 `Node.js 22.14.0`, `Node.js 22` and `Node.js 24` checks in branch protection;
 replace any old `Node 20*` / `Node 22` / `Node 24` check requirements when adopting
 this workflow. Branch protection is an administrator setup step, not configured
-by this change. Validation has read-only permissions and no service credentials.
+by this change. Validation has read-only permissions and no service credentials;
+only the publication job on `main` pushes and GitHub Releases reads a dedicated
+smoke project key.
 
 ## Releases and compatibility
 
