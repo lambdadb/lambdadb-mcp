@@ -52,9 +52,14 @@ workflow (`.github/workflows/next-dev-version.yaml`) opens a pull request that
 restores the placeholder: the same `X.Y.Z-dev.0` after an RC, or the next patch
 `X.Y.(Z+1)-dev.0` after a stable release. Change it with
 `node scripts/version.mjs set` if the next release is a minor or major version,
-then review and merge it. Pull requests opened by GitHub Actions do not trigger
-CI; the `main` push runs the full checks when it merges. The workflow has
-`contents: write` and `pull-requests: write` and never publishes.
+then review and merge it. Rerunning the workflow is safe: it keeps an open pull
+request whose branch already contains the current `main`, and otherwise recreates
+the branch from `main` (force push) and opens the pull request if none is open.
+Pull requests opened by GitHub Actions do not trigger CI, and `main` requires no
+status checks, so the workflow does not dispatch CI; run the `CI` workflow on the
+branch manually for checks before merging, and the `main` push runs the full
+checks when it merges. The workflow has `contents: write` and
+`pull-requests: write` and never publishes.
 
 The release records that follow, through "Historical bootstrap and 0.1.0
 status", are dated records from the earlier develop/main flow and are kept
