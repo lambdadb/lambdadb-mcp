@@ -1,10 +1,13 @@
+# Validate pull requests and main; on main pushes, publish a dev build for the committed
+# X.Y.Z-dev.0 placeholder or verify a committed RC/stable version without publication;
+# publish RC/stable GitHub Releases.
 name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
   release:
     types: [published]
@@ -43,8 +46,7 @@ jobs:
     if: >-
       github.repository == 'lambdadb/lambdadb-mcp' &&
       (github.event_name == 'release' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/develop' &&
-        vars.NPM_DEV_PUBLISH_ENABLED == 'true'))
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -70,12 +72,18 @@ jobs:
       - name: Require an OIDC-capable npm
         run: |
           node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
+      - name: Select the run mode
+        id: mode
+        run: node scripts/version.mjs mode
       - name: Prepare deterministic development version
-        if: github.event_name == 'push'
+        if: steps.mode.outputs.mode == 'dev'
         id: dev
         run: node scripts/dev-release.mjs prepare
+      - name: Verify committed release metadata and main ancestry without publication
+        if: steps.mode.outputs.mode == 'verify'
+        run: node scripts/release.mjs verify
       - name: Verify explicit release metadata and main ancestry
-        if: github.event_name == 'release'
+        if: steps.mode.outputs.mode == 'release'
         id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -83,7 +91,7 @@ jobs:
         run: |
           node scripts/release.mjs prepare
       - name: Pack once and test the exact publication artifact
-        if: github.event_name == 'release' || steps.dev.outputs.ready == 'true'
+        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         id: package
         shell: bash
         run: |
@@ -94,12 +102,14 @@ jobs:
           npm run test:package -- "$MCP_TARBALL"
           echo "tarball=$MCP_TARBALL" >> "$GITHUB_OUTPUT"
       - name: Publish development version and verify registry state
-        if: github.event_name == 'push' && steps.dev.outputs.ready == 'true'
+        if: >-
+          steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
+          vars.NPM_DEV_PUBLISH_ENABLED == 'true'
         env:
           MCP_TARBALL: ${{ steps.package.outputs.tarball }}
         run: node scripts/dev-release.mjs publish
       - name: Publish explicit release using npm Trusted Publishing
-        if: github.event_name == 'release'
+        if: steps.mode.outputs.mode == 'release'
         env:
           MCP_TARBALL: ${{ steps.package.outputs.tarball }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

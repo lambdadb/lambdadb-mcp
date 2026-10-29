@@ -41,8 +41,9 @@ channel for initial setup. See [release status and policy](RELEASING.md).
 
 [MCP 0.1.5](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.5) is published
 with LambdaDB SDK `0.8.1`, MCP SDK `1.32.2`, patched dependencies and Kiro/Claude
-query-schema compatibility. This checkout starts the next `0.1.6-dev.1` source
-base; check npm for the current published dev version. Existing direct MCP
+query-schema compatibility. Releases are now trunk-based on `main`, which carries
+the next version as the `0.2.0-dev.0` placeholder; each eligible merge publishes
+`0.2.0-dev.N`. Check npm for the current published dev version. Existing direct MCP
 installations need the new MCP version and an agent restart. CLI 0.1.5 still pins
 MCP 0.1.4 and needs a subsequent CLI release with an updated pin.
 
@@ -445,7 +446,7 @@ They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real
 stdio, checking version identity, config errors, stdout and process termination.
-CI validates Node 22.14.0, current 22.x and 24.x on PRs and pushes to develop/main.
+CI validates Node 22.14.0, current 22.x and 24.x on PRs into and pushes to main.
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md) for checks,
 release policy and the explicitly enabled automatic dev publication gate.
 

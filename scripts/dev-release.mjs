@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { checkMetadata } from './check-release.mjs';
+import { compareCores, latestStableTag, parseVersion } from './version.mjs';
 
 const packageName = '@functional-systems/lambdadb-mcp';
 const registry = 'https://registry.npmjs.org';
@@ -20,10 +21,21 @@ function lookupError(code) {
   return error;
 }
 
-export function developmentVersion(version, count) {
+// The committed X.Y.Z-dev.0 placeholder becomes X.Y.Z-dev.N, where N counts first-parent commits
+// since the newest stable release tag reachable from the commit (or since the root commit).
+export function developmentVersion(version, count, stableTag) {
   const match = devPattern.exec(version);
-  if (!match || !/^[1-9]\d*$/.test(String(count))) throw new Error('Develop requires X.Y.Z-dev.N and a positive first-parent commit count.');
+  if (!match || match[4] !== '0') throw new Error(`Development builds require a committed X.Y.Z-dev.0 version, found ${version}.`);
+  if (!/^[1-9]\d*$/.test(String(count))) throw new Error('Expected at least one first-parent commit since the latest stable release.');
+  if (stableTag && compareCores(parseVersion(version).core, parseVersion(stableTag.slice(1)).core) <= 0) {
+    throw new Error(`Committed ${version} must be newer than the latest stable release ${stableTag}; merge the next development version first.`);
+  }
   return `${match[1]}.${match[2]}.${match[3]}-dev.${count}`;
+}
+
+export function stableBase(run = git) {
+  const tag = latestStableTag(run('tag', '--merged', 'HEAD', '--list', 'v*').split('\n').filter(Boolean));
+  return { tag, count: run('rev-list', '--first-parent', '--count', tag ? `${tag}..HEAD` : 'HEAD') };
 }
 
 export function compareDevelopmentVersions(left, right) {
@@ -67,28 +79,29 @@ export function npmJson(args, { allowMissing = false, run = npm, timeoutMs = 120
 
 export function publicationPlan({ version, sha, branchHead, existing, taggedVersion, integrity, channel = 'dev' }) {
   if (sha !== branchHead) return 'stale';
+  // A version is derived from its commit, so the same version from another source is a conflict.
+  if (existing && (existing.name !== packageName || existing.version !== version || existing.gitHead !== sha || existing.dist?.integrity !== integrity)) {
+    throw new Error('Published version differs from this source/artifact; never overwrite it.');
+  }
   if (taggedVersion && (channel === 'dev' ? compareDevelopmentVersions : compareVersions)(taggedVersion, version) > 0) return 'superseded';
   if (!existing) {
     if (taggedVersion === version) throw new Error('Registry tag/version disagreement; retry registry reads later.');
     return 'publish';
   }
-  if (existing.name !== packageName || existing.version !== version || existing.gitHead !== sha || existing.dist?.integrity !== integrity) {
-    throw new Error('Published version differs from this source/artifact; never overwrite it.');
-  }
   if (taggedVersion !== version) throw new Error('Existing artifact is verified but channel points elsewhere; inspect registry state before changing tags.');
   return 'already-published';
 }
 
-function developHead() {
-  const result = git('ls-remote', 'origin', 'refs/heads/develop');
-  const match = /^([a-f0-9]{40})\s+refs\/heads\/develop$/.exec(result);
-  if (!match) throw new Error('Cannot resolve origin/develop.');
+function mainHead() {
+  const result = git('ls-remote', 'origin', 'refs/heads/main');
+  const match = /^([a-f0-9]{40})\s+refs\/heads\/main$/.exec(result);
+  if (!match) throw new Error('Cannot resolve origin/main.');
   return match[1];
 }
 
 function context() {
-  if (process.env.GITHUB_REPOSITORY !== 'lambdadb/lambdadb-mcp' || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/develop') {
-    throw new Error('Automatic development publication only runs on this repository’s develop push.');
+  if (process.env.GITHUB_REPOSITORY !== 'lambdadb/lambdadb-mcp' || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/main') {
+    throw new Error('Automatic development publication only runs on this repository’s main push.');
   }
   const sha = git('rev-parse', 'HEAD');
   if (sha !== process.env.GITHUB_SHA) throw new Error('Checkout does not match the triggering commit.');
@@ -102,12 +115,14 @@ export function output(name, value) {
 
 function prepare() {
   const sha = context();
-  if (sha !== developHead()) { output('ready', 'false'); return; }
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
-  const version = developmentVersion(pkg.version, git('rev-list', '--first-parent', '--count', 'HEAD'));
+  const { tag, count } = stableBase();
+  const version = developmentVersion(pkg.version, count, tag);
+  // A newer main push supersedes this commit; only the current head publishes.
+  if (sha !== mainHead()) { output('ready', 'false'); return; }
   pkg.version = lock.version = lock.packages[''].version = version;
   pkg.gitHead = sha;
   checkMetadata(pkg, lock, { tag: `v${version}`, prerelease: true });
@@ -118,7 +133,7 @@ function prepare() {
 }
 
 export async function publishPackage({ name, version, sha, integrity, tarball, channel = 'dev' }, {
-  run = npm, head = developHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
+  run = npm, head = mainHead, pause = delay, now = () => performance.now(), report = message => console.error(message),
 } = {}) {
   if (name !== packageName) throw new Error('Unexpected package name.');
   if (!['dev', 'rc', 'latest'].includes(channel)) throw new Error('Invalid publication channel.');

@@ -1,5 +1,65 @@
 # Releasing LambdaDB MCP
 
+## Release model
+
+Releases are trunk-based: `main` is the only long-lived branch and the default
+branch. Every change reaches `main` through a pull request; feature and fix pull
+requests are merged with **Squash and merge**. The organization ruleset
+`protect-main` requires a pull request with one approval (the `dev` team may
+bypass the approval) and blocks deletion and force pushes. There are no
+`develop`, release or hotfix branches; maintenance releases are cut from `main`,
+and anything merged into `main` ships in the next release.
+
+| Channel | Committed version | Published version | Trigger | Git tag | npm dist-tag |
+| --- | --- | --- | --- | --- | --- |
+| Development | `X.Y.Z-dev.0` | `X.Y.Z-dev.N` (N ≥ 1, assigned by CI) | `main` push, explicitly enabled | None | dev |
+| Release candidate | `X.Y.Z-rc.N` | `X.Y.Z-rc.N` | Published GitHub prerelease `vX.Y.Z-rc.N` | `vX.Y.Z-rc.N` | rc |
+| Stable | `X.Y.Z` | `X.Y.Z` | Published GitHub release `vX.Y.Z` | `vX.Y.Z` | latest |
+
+Between releases, `main` carries the next version with the development
+placeholder `X.Y.Z-dev.0`; number 0 is never published. A release pull request
+sets the RC or stable version, and that exact merge commit on `main` is tagged.
+Published version, committed version and tag agree. Only these canonical forms
+are accepted, without leading zeroes or build suffixes. `package.json` and both
+root lockfile versions must match. MCP initialize reads its version from the
+installed package.json; there is no second version constant. The repository URL
+must identify this exact public GitHub repository.
+
+Change every version source at once with the version script. It keeps each
+file's formatting, accepts only committed forms (`X.Y.Z-dev.0`, `X.Y.Z-rc.N`,
+`X.Y.Z`) and fails unless all sources agree afterwards:
+
+```sh
+node scripts/version.mjs get               # print the committed version
+node scripts/version.mjs set 0.2.0-rc.1    # release pull request
+node scripts/version.mjs set 0.2.1-dev.0   # next development version
+```
+
+The `CI` workflow (`.github/workflows/publish.yaml`) selects one run mode:
+
+- Pull requests into `main` and manual runs: validation only, no credentials.
+- `main` push with `X.Y.Z-dev.0`: validation, then an automatic dev build (see
+  below).
+- `main` push with `X.Y.Z-rc.N` or `X.Y.Z` (a release pull request merge):
+  validation plus the publication job's release metadata, changelog, ancestry,
+  pack and installed-package checks, with no publication. Tag only after it
+  passes.
+- Published GitHub Release: the same checks against the tag, then publication of
+  its RC or stable version.
+
+After an RC or stable publication succeeds, the "Open next development version"
+workflow (`.github/workflows/next-dev-version.yaml`) opens a pull request that
+restores the placeholder: the same `X.Y.Z-dev.0` after an RC, or the next patch
+`X.Y.(Z+1)-dev.0` after a stable release. Change it with
+`node scripts/version.mjs set` if the next release is a minor or major version,
+then review and merge it. Pull requests opened by GitHub Actions do not trigger
+CI; the `main` push runs the full checks when it merges. The workflow has
+`contents: write` and `pull-requests: write` and never publishes.
+
+The release records that follow, through "Historical bootstrap and 0.1.0
+status", are dated records from the earlier develop/main flow and are kept
+unchanged.
+
 ## Current stable release: 0.1.5 (2026-10-25 KST)
 
 [v0.1.5](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.5) tags main
@@ -144,23 +204,15 @@ As verified on **2026-09-20 (KST)**:
   the `0.1.1-dev.1` base; CI generates its dev counter from first-parent history.
   Eligible develop pushes can publish the next dev version while leaving
   `latest` on `0.1.0`.
-- See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) for package,
+- See the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/main/docs/validation/2026-09-20-npm.md) for package,
   provenance, and live-service evidence and their separate scopes.
 
 These are dated observations, not fixed channel values. Recheck the registry and
 repository variable before the next release. The bootstrap and trust sections
 below describe setup and recovery; they are not outstanding setup tasks.
 
-| Source | Version | Trigger | npm dist-tag |
-| --- | --- | --- | --- |
-| develop | `X.Y.Z-dev.N` | Successful push validation, explicitly enabled | dev |
-| reviewed main history | `X.Y.Z-rc.N` | Published GitHub prerelease `vX.Y.Z-rc.N` | rc |
-| reviewed main history | `X.Y.Z` | Published GitHub release `vX.Y.Z` | latest |
-
-Only these canonical forms are accepted, without leading zeroes or build suffixes.
-`package.json` and both root lockfile versions must match. MCP initialize reads
-its version from the installed package.json; there is no second version constant.
-The repository URL must identify this exact public GitHub repository.
+The release model at the top of this document replaces the earlier develop-based
+channel table.
 
 ## Validation and the publication artifact
 
@@ -197,7 +249,7 @@ record performed or not performed. They require a designated development project
 not merely the presence of an existing `.env.local` or credential. See README
 for `LAMBDADB_RUN_LIVE_TESTS=1` and project confirmation. Do not load production
 credentials into package/CI tests. Authorized development-project live tests have
-passed; the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/develop/docs/validation/2026-09-20-npm.md) identifies the
+passed; the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/main/docs/validation/2026-09-20-npm.md) identifies the
 tested source and installed package. These results do not automatically validate
 a future release candidate.
 
@@ -207,7 +259,7 @@ npm trust configuration requires an existing package. See the official
 [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/).
 The TypeScript SDK's or CLI's trust settings do not cover this package.
 
-1. Review and merge preparation, validate a clean reviewed develop candidate,
+1. Review and merge preparation, validate a clean reviewed candidate,
    and confirm its version is the real bootstrap prerelease `0.1.0-dev.1`.
 2. Obtain authorization for first publication. An authorized npm
    `functional-systems` organization owner uses interactive `npm login` with MFA,
@@ -251,46 +303,69 @@ The workflow uses a GitHub-hosted runner, Node 24, npm >=11.5.1,
 `id-token: write` only in the publication job, public access and provenance.
 It has no npm token secret. See [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/).
 
-## Enable automatic dev publication: a separate authorization
+## Automatic dev publication: a separate authorization
 
 Leave repository variable `NPM_DEV_PUBLISH_ENABLED` unset or false through
-bootstrap and trust setup. Only after authorizing ongoing develop publication,
-set it to `true` in GitHub **Settings → Secrets and variables → Actions → Variables**.
+bootstrap and trust setup. Only after authorizing ongoing dev publication, set it
+to `true` in GitHub **Settings → Secrets and variables → Actions → Variables**.
 This repository completed that activation; the variable was verified as `true` on
-2026-09-20 (KST). The next eligible develop push, or a rerun of its existing push
-workflow, can publish. `workflow_dispatch`, PRs and main
-pushes validate only. Disable the variable to stop future automatic publication;
-do not cancel an in-progress registry write as rollback.
+2026-09-20 (KST). With it set, a reviewed `main` push whose committed version is
+`X.Y.Z-dev.0` publishes after validation, and a rerun of its existing push
+workflow can publish. Pull requests, manual runs and release verification never
+publish. Disable the variable to stop future automatic publication; the job then
+still prepares and tests the dev artifact without a registry write. Do not cancel
+an in-progress registry write as rollback.
 
-The generator reuses the CLI's first-parent strategy: for a reviewed base
-`X.Y.Z-dev.N`, set N to `git rev-list --first-parent --count HEAD` from a full
-checkout. Numbers can have gaps; reruns of the same commit generate the same
-version. Disable force pushes/history rewrites. Generated package/lock versions
-and gitHead exist only in the runner; no version commits, tags or GitHub Releases
-are created for dev builds. Review a new base when starting another release line.
+The workflow checks out the exact push SHA and publishes `X.Y.Z-dev.N`, where N
+is the number of first-parent commits on `main` since the newest stable release
+tag (`vA.B.C`) reachable from that commit, or since the root commit when there is
+none. N is the same on every rerun of a commit, restarts at 1 after each stable
+release, and keeps increasing across the RCs of one version. Preparation fails
+unless `X.Y.Z` is newer than the newest stable tag, so a missed next-version
+change cannot publish a lower version, and fails for any committed dev version
+other than the `-dev.0` placeholder. Generated package/lock versions and
+`gitHead` (the source commit) exist only in the runner; no version commits, tags
+or GitHub Releases are created for dev builds. Disable force pushes/history
+rewrites; numbers can have gaps when pushes are superseded.
 
-Remote develop HEAD is checked before preparation and immediately before the
-write. Stale jobs and versions older than the current channel are skipped.
-All publication jobs share non-cancelling concurrency so registry writes do not
-race. A newer pending job can replace an older pending job; this does not promise
-a package for every rapid merge. Re-run an explicit release if it was superseded
-in the pending queue and still needs publication.
+The earlier develop flow numbered dev builds by all first-parent commits on
+`develop` (last published: `0.1.6-dev.21`). The trunk-based `main` starts at
+`0.2.0-dev.0`, so its dev builds sort above every earlier dev build and the next
+release is 0.2.0 unless a release pull request chooses otherwise.
+
+Remote `main` HEAD is checked before preparation and immediately before the
+write; a commit that is no longer the head of `main` is skipped. Versions older
+than the current channel are skipped. A version already published from the same
+commit and artifact is skipped as `already-published`; the same version from a
+different commit fails. All publication jobs share non-cancelling concurrency so
+registry writes do not race. A newer pending job can replace an older pending
+job; this does not promise a package for every rapid merge. Re-run an explicit
+release if it was superseded in the pending queue and still needs publication.
 
 ## Explicit rc/stable publication
 
-1. Prepare matching package/lock metadata and a dated
-   `## [VERSION] - YYYY-MM-DD` changelog entry on a release branch. Review into
-   main and retain validation/live-test status for the candidate.
-2. Ensure `publish.yaml` exists on the default branch (`main`). The dev push
-   path does not require that promotion, but GitHub Release handling does.
-3. Obtain authorization, tag the verified main commit as `vVERSION`, and publish
-   the GitHub Release with `prerelease: true` for rc or `false` for stable.
-   Draft releases do not publish. Do not create a dev GitHub Release.
+1. Open a release pull request into `main` that sets the version with
+   `node scripts/version.mjs set X.Y.Z-rc.N` (or `X.Y.Z`) and adds a dated
+   `## [VERSION] - YYYY-MM-DD` changelog entry. Retain validation/live-test
+   status for the candidate.
+2. Merge it. That `main` push runs the publication job in verification mode:
+   release metadata, changelog and ancestry checks, one pack and the
+   installed-package tests, with no publication. Do not merge other pull
+   requests until the release is tagged, or tag the release pull request's merge
+   commit explicitly.
+3. After verification passes, obtain authorization, tag that exact merge commit
+   on `main` as `vVERSION`, and publish the GitHub Release with
+   `prerelease: true` for rc or `false` for stable. Draft releases do not
+   publish. Do not create a dev GitHub Release.
 4. The workflow validates the release tag, package versions, prerelease flag,
    changelog and ancestry in origin/main; it packs/tests once and publishes the
    exact file to rc/latest with OIDC and provenance. A successful CI run alone
-   is not publication evidence. Verify npm and synchronize release changes into
-   develop with its next dev base via PR.
+   is not publication evidence. Verify npm.
+5. Review and merge the next development version pull request opened by the
+   "Open next development version" workflow (see the release model above).
+
+Address RC feedback in new pull requests into `main` and release the next RC
+number. Never reuse a published version or move its tag.
 
 ## Duplicate prevention, registry lag and recovery
 
