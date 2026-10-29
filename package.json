@@ -14,6 +14,7 @@
     "test:live:bayesian": "npm run build && bash ./scripts/with-env.sh --test test/integration/bayesian-live.test.mjs",
     "test:live:rerank": "npm run build && bash ./scripts/with-env.sh --test test/integration/rerank-live.test.mjs",
     "test:live": "npm run build && bash ./scripts/with-env.sh --test test/integration/live.test.mjs",
+    "test:live:all": "npm run build && bash ./scripts/with-env.sh --test --test-concurrency=1 test/integration/live.test.mjs test/integration/rerank-live.test.mjs test/integration/bayesian-live.test.mjs",
     "dev": "tsx watch src/index.ts",
     "inspect": "bash ./scripts/inspect.sh",
     "start": "node dist/index.js",

@@ -47,6 +47,14 @@ test("launcher fails for a missing selected file instead of silently using anoth
   assert.match(result.stderr, /Missing environment file: missing.env/);
 });
 
+test("launcher loads no file for /dev/null, so local dotenv files cannot reach the live smoke", async (t) => {
+  const f = await fixture(t);
+  await f.write(".env.local", "LAMBDADB_PROJECT_NAME=local\nLAMBDADB_MCP_ENABLE_WRITE_TOOLS=false\n");
+  const result = f.run({ LAMBDADB_ENV_FILE: "/dev/null", LAMBDADB_PROJECT_NAME: "smoke" });
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), { project: "smoke" });
+});
+
 test("Inspector forwards the file and read-only overrides without putting credentials in arguments", async (t) => {
   const f = await fixture(t);
   const script = join(f.root, "scripts", "inspect.sh");

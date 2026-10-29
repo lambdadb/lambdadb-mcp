@@ -37,15 +37,19 @@ node scripts/version.mjs set 0.2.1-dev.0   # next development version
 
 The `CI` workflow (`.github/workflows/publish.yaml`) selects one run mode:
 
-- Pull requests into `main` and manual runs: validation only, no credentials.
-- `main` push with `X.Y.Z-dev.0`: validation, then an automatic dev build (see
-  below).
+- Pull requests into `main` and manual runs: validation only, no credentials
+  and no live tests.
+- `main` push with `X.Y.Z-dev.0`: validation, the deployed live smoke against
+  the dev environment, then an automatic dev build (see below).
 - `main` push with `X.Y.Z-rc.N` or `X.Y.Z` (a release pull request merge):
   validation plus the publication job's release metadata, changelog, ancestry,
-  pack and installed-package checks, with no publication. Tag only after it
-  passes.
-- Published GitHub Release: the same checks against the tag, then publication of
-  its RC or stable version.
+  pack and installed-package checks and the deployed live smoke against
+  production, with no publication. Tag only after it passes.
+- Published GitHub Release: the same checks against the tag, including the
+  production live smoke, then publication of its RC or stable version.
+
+Every publication-job run passes the deployed live smoke (see "Deployed live
+smoke gates") before any registry write; a smoke failure stops the job.
 
 After an RC or stable publication succeeds, the "Open next development version"
 workflow (`.github/workflows/next-dev-version.yaml`) opens a pull request that
@@ -250,14 +254,106 @@ failures, protocol-only stdout and termination. They do not prove production
 service behavior or every MCP client UI. Installed dependencies are resolved by
 npm (the package's development lockfile is not a consumer dependency lock).
 
-Live tests are optional for PR validation, but release owners must explicitly
-record performed or not performed. They require a designated development project,
-not merely the presence of an existing `.env.local` or credential. See README
-for `LAMBDADB_RUN_LIVE_TESTS=1` and project confirmation. Do not load production
-credentials into package/CI tests. Authorized development-project live tests have
-passed; the [validation record](https://github.com/lambdadb/lambdadb-mcp/blob/main/docs/validation/2026-09-20-npm.md) identifies the
+Live tests are not part of PR validation. The publication job runs them as the
+deployed live smoke gate described below. Manual live runs require a designated
+project, not merely the presence of an existing `.env.local` or credential. See
+README for `LAMBDADB_RUN_LIVE_TESTS=1` and project confirmation. Never load
+production credentials into package tests or the validation matrix; only the
+publication job's smoke reads the dedicated production smoke project key.
+Authorized development-project live tests have passed; the
+[validation record](https://github.com/lambdadb/lambdadb-mcp/blob/main/docs/validation/2026-09-20-npm.md) identifies the
 tested source and installed package. These results do not automatically validate
 a future release candidate.
+
+## Deployed live smoke gates
+
+| Run mode | Event | Live target | Variable prefix |
+| --- | --- | --- | --- |
+| None | Pull request, manual run | None (no credentials) | None |
+| `dev` | `main` push with `X.Y.Z-dev.0` | Dev environment, then dev publication | `LAMBDADB_DEV_` |
+| `verify` | `main` push with `X.Y.Z-rc.N` or `X.Y.Z` | Production, verification only | `LAMBDADB_PROD_` |
+| `release` | Published GitHub Release | Production, then publication | `LAMBDADB_PROD_` |
+
+`node scripts/version.mjs mode` selects the run mode and its Variable prefix. A
+dev run superseded before preparation (no longer the head of `main`) skips the
+smoke together with publication.
+
+After the exact publication artifact passes its installed-package tests, the
+publication job assumes the environment's AWS role through GitHub OIDC and runs
+`node scripts/run-live-smoke.mjs`. The runner fails on missing configuration,
+reads the project API key from Secrets Manager with the AWS CLI, masks it, and
+passes it only in the environment of `npm run test:live:all`. It never puts the
+key in files, command arguments, artifacts or GitHub Secrets, and loads no
+dotenv file (`LAMBDADB_ENV_FILE=/dev/null`). It sets every opt-in
+(`LAMBDADB_RUN_LIVE_TESTS=1`, `LAMBDADB_RUN_LIVE_RERANK_TESTS=1`,
+`LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true` and `LAMBDADB_LIVE_CONFIRM_PROJECT` set
+to the project name), and each suite fails rather than skips without them.
+
+`test:live:all` builds once and runs `live`, `rerank-live` and `bayesian-live`
+one file at a time (`--test-concurrency=1`); concurrent bulk writes can exceed
+the project's writer capacity and return HTTP 429. Each suite creates its own
+temporary collection, deletes it in cleanup and verifies its absence. The rerank
+and Bayesian suites incur real embedding and reranking inference. The
+publication job allows 60 minutes for these suites.
+
+Each smoke target uses these repository Variables. A missing Variable is empty
+and fails the run; it never falls back to the other environment.
+
+| Variable | Value |
+| --- | --- |
+| `LAMBDADB_DEV_BASE_URL` | `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` |
+| `LAMBDADB_DEV_PROJECT_NAME` | Dedicated MCP smoke project in `dev-aws-apne2-v3` (`mcp-ci`) |
+| `LAMBDADB_DEV_SMOKE_AWS_ROLE_ARN` | Dev AWS OIDC role ARN (`lambdadb-mcp-smoke`) |
+| `LAMBDADB_DEV_SMOKE_SECRET_ARN` | Exact ARN of the dev project's API key secret |
+| `LAMBDADB_PROD_BASE_URL` | `https://aws-ap-northeast-2-v3.lambdadb.ai` |
+| `LAMBDADB_PROD_PROJECT_NAME` | Dedicated MCP smoke project in `prod-aws-apne2-v3` (`mcp-ci`) |
+| `LAMBDADB_PROD_SMOKE_AWS_ROLE_ARN` | Production AWS OIDC role ARN (`lambdadb-mcp-prod-smoke`) |
+| `LAMBDADB_PROD_SMOKE_SECRET_ARN` | Exact ARN of the production project's API key secret |
+
+Each key is a plain SecretString in `ap-northeast-2`. Each project is dedicated
+to this smoke, where temporary collections may be created and deleted, with a
+`rateLimit` of at least 100 requests per second. Each role trusts audience
+`sts.amazonaws.com` and only these subjects; the dev role:
+
+```text
+repo:lambdadb/lambdadb-mcp:ref:refs/heads/main
+```
+
+The production role (release verification on `main`, Releases on tags):
+
+```text
+repo:lambdadb/lambdadb-mcp:ref:refs/heads/main
+repo:lambdadb/lambdadb-mcp:ref:refs/tags/v*
+```
+
+Each role may only call `secretsmanager:GetSecretValue` on its own environment's
+smoke secret (plus `kms:Decrypt` on the exact key if a customer-managed KMS key
+is used). Do not grant the workflow an admin key, project creation, deployment
+or secret write permissions. Provisioning the roles, projects, keys and
+Variables is a separate environment setup step; key rotation updates the secret
+without changing the workflow. A smoke failure caused by a server change not yet
+deployed to production blocks verification and release; record the exact error.
+
+To run the same suite locally against a designated project, use AWS credentials
+that can read its smoke secret. Outside GitHub Actions the runner prints no mask
+command, so the key is never printed:
+
+```sh
+npm ci
+AWS_PROFILE=YOUR_PROFILE LAMBDADB_BASE_URL=https://... LAMBDADB_PROJECT_NAME=mcp-ci \
+  LAMBDADB_SMOKE_SECRET_ARN=arn:aws:secretsmanager:... node scripts/run-live-smoke.mjs
+```
+
+With credentials in `.env.local` (including `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`)
+instead, set the opt-ins yourself:
+
+```sh
+LAMBDADB_RUN_LIVE_TESTS=1 LAMBDADB_RUN_LIVE_RERANK_TESTS=1 \
+  LAMBDADB_LIVE_CONFIRM_PROJECT=YOUR_PROJECT npm run test:live:all
+```
+
+Record the environment, MCP commit, duration, outcome and cleanup result. A
+source revision alone does not establish the deployed server revision.
 
 ## First package publication: separate manual bootstrap
 
@@ -316,10 +412,11 @@ bootstrap and trust setup. Only after authorizing ongoing dev publication, set i
 to `true` in GitHub **Settings → Secrets and variables → Actions → Variables**.
 This repository completed that activation; the variable was verified as `true` on
 2026-09-20 (KST). With it set, a reviewed `main` push whose committed version is
-`X.Y.Z-dev.0` publishes after validation, and a rerun of its existing push
-workflow can publish. Pull requests, manual runs and release verification never
-publish. Disable the variable to stop future automatic publication; the job then
-still prepares and tests the dev artifact without a registry write. Do not cancel
+`X.Y.Z-dev.0` publishes after validation and the dev live smoke pass, and a
+rerun of its existing push workflow can publish. Pull requests, manual runs and
+release verification never publish. Disable the variable to stop future
+automatic publication; the job then still prepares and tests the dev artifact
+and runs the dev live smoke without a registry write. Do not cancel
 an in-progress registry write as rollback.
 
 The workflow checks out the exact push SHA and publishes `X.Y.Z-dev.N`, where N
@@ -355,8 +452,8 @@ release if it was superseded in the pending queue and still needs publication.
    `## [VERSION] - YYYY-MM-DD` changelog entry. Retain validation/live-test
    status for the candidate.
 2. Merge it. That `main` push runs the publication job in verification mode:
-   release metadata, changelog and ancestry checks, one pack and the
-   installed-package tests, with no publication. Do not merge other pull
+   release metadata, changelog and ancestry checks, one pack, the
+   installed-package tests and the production live smoke, with no publication. Do not merge other pull
    requests until the release is tagged, or tag the release pull request's merge
    commit explicitly.
 3. After verification passes, obtain authorization, tag that exact merge commit
@@ -364,8 +461,9 @@ release if it was superseded in the pending queue and still needs publication.
    `prerelease: true` for rc or `false` for stable. Draft releases do not
    publish. Do not create a dev GitHub Release.
 4. The workflow validates the release tag, package versions, prerelease flag,
-   changelog and ancestry in origin/main; it packs/tests once and publishes the
-   exact file to rc/latest with OIDC and provenance. A successful CI run alone
+   changelog and ancestry in origin/main; it packs/tests once, runs the
+   production live smoke and publishes the exact file to rc/latest with OIDC
+   and provenance. A successful CI run alone
    is not publication evidence. Verify npm.
 5. Review and merge the next development version pull request opened by the
    "Open next development version" workflow (see the release model above).
