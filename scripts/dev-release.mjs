@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { checkMetadata } from './check-release.mjs';
-import { compareCores, latestStableTag, parseVersion } from './version.mjs';
+import { COMMITTED_VERSION, compareCores, latestStableTag, parseVersion } from './version.mjs';
 
 const packageName = '@functional-systems/lambdadb-mcp';
 const registry = 'https://registry.npmjs.org';
@@ -21,16 +21,19 @@ function lookupError(code) {
   return error;
 }
 
-// The committed X.Y.Z-dev.0 placeholder becomes X.Y.Z-dev.N, where N counts first-parent commits
-// since the newest stable release tag reachable from the commit (or since the root commit).
+// A tagged committed version becomes the next development version: RC X.Y.Z-rc.M → X.Y.Z-dev.N,
+// stable X.Y.Z → X.Y.(Z+1)-dev.N, where N counts first-parent commits since the newest stable
+// release tag reachable from the commit (or since the root commit).
 export function developmentVersion(version, count, stableTag) {
-  const match = devPattern.exec(version);
-  if (!match || match[4] !== '0') throw new Error(`Development builds require a committed X.Y.Z-dev.0 version, found ${version}.`);
+  const match = COMMITTED_VERSION.exec(version);
+  if (!match) throw new Error(`Development builds require a committed RC or stable version, found ${version}.`);
   if (!/^[1-9]\d*$/.test(String(count))) throw new Error('Expected at least one first-parent commit since the latest stable release.');
-  if (stableTag && compareCores(parseVersion(version).core, parseVersion(stableTag.slice(1)).core) <= 0) {
-    throw new Error(`Committed ${version} must be newer than the latest stable release ${stableTag}; merge the next development version first.`);
+  const [major, minor, patch] = parseVersion(version).core;
+  const core = match[4] === undefined ? [major, minor, patch + 1] : [major, minor, patch];
+  if (stableTag && compareCores(core, parseVersion(stableTag.slice(1)).core) <= 0) {
+    throw new Error(`Development version ${core.join('.')}-dev.${count} must be newer than the latest stable release ${stableTag}.`);
   }
-  return `${match[1]}.${match[2]}.${match[3]}-dev.${count}`;
+  return `${core.join('.')}-dev.${count}`;
 }
 
 export function stableBase(run = git) {
@@ -79,11 +82,13 @@ export function npmJson(args, { allowMissing = false, run = npm, timeoutMs = 120
 
 export function publicationPlan({ version, sha, branchHead, existing, taggedVersion, integrity, channel = 'dev' }) {
   if (sha !== branchHead) return 'stale';
+  // Never move a channel tag backwards. This precedes the conflict check: a version below the
+  // channel is never written, even if an earlier flow already published it from another commit.
+  if (taggedVersion && (channel === 'dev' ? compareDevelopmentVersions : compareVersions)(taggedVersion, version) > 0) return 'superseded';
   // A version is derived from its commit, so the same version from another source is a conflict.
   if (existing && (existing.name !== packageName || existing.version !== version || existing.gitHead !== sha || existing.dist?.integrity !== integrity)) {
     throw new Error('Published version differs from this source/artifact; never overwrite it.');
   }
-  if (taggedVersion && (channel === 'dev' ? compareDevelopmentVersions : compareVersions)(taggedVersion, version) > 0) return 'superseded';
   if (!existing) {
     if (taggedVersion === version) throw new Error('Registry tag/version disagreement; retry registry reads later.');
     return 'publish';
@@ -119,7 +124,19 @@ function prepare() {
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
+  // Mode selection found v<version> on origin. If that tag was pushed after this checkout, fetch it
+  // so numbering uses the same tag snapshot; a missing remote tag fails here.
+  const committedTag = `v${pkg.version}`;
+  if (COMMITTED_VERSION.test(pkg.version) && !git('tag', '--list', committedTag)) {
+    git('fetch', '--quiet', '--no-tags', 'origin', `refs/tags/${committedTag}:refs/tags/${committedTag}`);
+  }
   const { tag, count } = stableBase();
+  if (count === '0' && tag === `v${pkg.version}`) {
+    // A rerun of the stable release commit after its tag exists; its GitHub Release publishes it.
+    console.log(`::notice title=Development publication skipped::HEAD is the stable release ${tag}; there is no development version to build.`);
+    output('ready', 'false');
+    return;
+  }
   const version = developmentVersion(pkg.version, count, tag);
   // A newer main push supersedes this commit; only the current head publishes.
   if (sha !== mainHead()) { output('ready', 'false'); return; }
@@ -147,6 +164,7 @@ export async function publishPackage({ name, version, sha, integrity, tarball, c
   if (taggedVersion !== undefined && typeof taggedVersion !== 'string') throw new Error('Invalid channel tag.');
   const existing = manifest();
   const plan = publicationPlan({ version, sha, integrity, existing, taggedVersion, channel, branchHead: head() });
+  if (plan === 'superseded') report(`Skipping publication: ${name}@${version} is lower than the current ${channel} dist-tag ${taggedVersion}, which never moves backwards.`);
   if (plan !== 'publish') return plan;
   const result = run(['publish', tarball, '--access', 'public', '--tag', channel, '--provenance']);
   if (result.status !== 0) throw new Error('npm publish did not confirm success. Inspect registry state and rerun; this job never retries the write.');

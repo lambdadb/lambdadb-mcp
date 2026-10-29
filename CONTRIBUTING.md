@@ -45,8 +45,9 @@ smoke project key.
 
 ## Releases and compatibility
 
-Between releases, `main` carries the next version as the `X.Y.Z-dev.0`
-placeholder; CI assigns the published dev number. Automatic dev publication
+The committed version is always the last released RC/stable version (or the next
+one set by a release pull request); CI derives development versions from tags and
+never commits them. Automatic dev publication
 requires separate bootstrap, package-specific npm trust and an explicit repository
 variable. Setup is complete and `NPM_DEV_PUBLISH_ENABLED=true` as verified on
 2026-09-20 (KST); merging into `main` can publish a new dev version after CI
@@ -56,8 +57,8 @@ Follow [RELEASING.md](RELEASING.md) for every publication action.
 A release pull request into `main` sets the rc/stable version and a dated
 changelog entry; its merge is verified without publication. Maintenance releases
 are cut from `main`. Tags, GitHub Releases and bootstrap publication are explicit
-maintainer actions. After a release publishes, review the bot-opened pull request
-that restores the next `X.Y.Z-dev.0` placeholder.
+maintainer actions. No version change follows a release: once its tag exists,
+later `main` pushes build the next development version.
 
 Treat environment variables, tool names/schemas, read-only defaults, ref semantics,
 error handling and supported runtimes as public contracts. Document incompatible

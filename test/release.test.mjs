@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { checkMetadata } from '../scripts/check-release.mjs';
 import { compareVersions, publicationPlan, publishPackage } from '../scripts/dev-release.mjs';
@@ -10,10 +14,24 @@ function fixture(version) {
 }
 
 test('release validation maps canonical stable, dev and rc versions to separate channels', () => {
-  for (const [version, channel] of [['1.2.3', 'latest'], ['0.1.0-dev.0', 'dev'], ['0.1.0-rc.2', 'rc']]) {
+  for (const [version, channel] of [['1.2.3', 'latest'], ['0.1.0-dev.3', 'dev'], ['0.1.0-rc.2', 'rc']]) {
     const { pkg, lock } = fixture(version);
     assert.deepEqual(checkMetadata(pkg, lock, { tag: `v${version}`, prerelease: channel !== 'latest' }), { version, channel });
   }
+});
+
+test('the version check rejects a committed development version but accepts CI-prepared metadata', t => {
+  const root = mkdtempSync(join(tmpdir(), 'mcp-check-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const check = (version, extra = {}) => {
+    const { pkg, lock } = fixture(version);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ ...pkg, ...extra }));
+    writeFileSync(join(root, 'package-lock.json'), JSON.stringify(lock));
+    return spawnSync(process.execPath, [resolve('scripts/check-release.mjs')], { cwd: root, encoding: 'utf8' });
+  };
+  for (const version of ['0.1.5', '0.2.0-rc.1']) assert.equal(check(version).status, 0);
+  for (const version of ['0.2.0-dev.0', '0.1.6-dev.3']) assert.match(check(version).stderr, /Commit only RC or stable versions/);
+  assert.equal(check('0.1.6-dev.3', { gitHead: 'a'.repeat(40) }).status, 0);
 });
 
 test('release validation blocks drift, malformed versions, wrong tags, prerelease promotion and unprepared publication', () => {

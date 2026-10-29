@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Derive development versions from tags instead of a committed placeholder. The
+  committed version is always the last released RC/stable version, and only a
+  release pull request changes it; the "Open next development version" workflow
+  and the `-dev.0` placeholder described below are removed. A `main` push whose
+  committed version is tagged on `origin` builds `X.Y.(Z+1)-dev.N` after a stable
+  release or `X.Y.Z-dev.N` after an RC (N as before); an untagged RC/stable
+  version is verified without publication; a committed development version
+  fails. A version below the `dev` dist-tag is skipped with a notice. Transition:
+  the committed version returns from `0.2.0-dev.0` to `0.1.5`, so `main` pushes
+  derive `0.1.6-dev.N`, below the published `0.2.0-dev.2`, and skip publication
+  until a release pull request sets `0.2.0-rc.1` or `0.2.0` and it is tagged.
+
 - Gate every publication run on the deployed live smoke: dev builds run all live
   suites against the dev environment before publication, and release
   verification and GitHub Releases run them against production. The project key

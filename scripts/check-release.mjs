@@ -30,6 +30,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
     const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
     const result = checkMetadata(pkg, lock, release);
+    // Only CI-prepared metadata (with the source commit as gitHead) carries a development version.
+    if (result.channel === 'dev' && !pkg.gitHead) throw new Error('Commit only RC or stable versions; CI derives development versions from tags.');
     if (release && !readFileSync('CHANGELOG.md', 'utf8').includes(`## [${result.version}] - `)) throw new Error('Add a dated changelog entry for the release version.');
     if (release && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${result.version}\nchannel=${result.channel}\n`);
     console.log(JSON.stringify(result));

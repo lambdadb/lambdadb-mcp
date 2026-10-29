@@ -1,6 +1,7 @@
-# Validate pull requests and main; on main pushes, publish a dev build for the committed
-# X.Y.Z-dev.0 placeholder or verify a committed RC/stable version without publication;
-# publish RC/stable GitHub Releases. Publication runs gate on deployed live smoke tests.
+# Validate pull requests and main. On main pushes, publish a dev build derived from the committed
+# version when its v<version> tag exists on origin, or verify an untagged committed RC/stable
+# version without publication; publish RC/stable GitHub Releases. Publication runs gate on
+# deployed live smoke tests.
 name: CI
 
 on:

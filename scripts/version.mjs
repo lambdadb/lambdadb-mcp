@@ -1,10 +1,11 @@
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const core = String.raw`(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)`;
-/** Versions that may be committed: the dev placeholder between releases, or an RC/stable release. */
-export const COMMITTED_VERSION = new RegExp(`^${core}(?:-dev\\.0|-rc\\.([1-9]\\d*))?$`);
+/** Versions that may be committed: an RC or stable release. CI derives development versions. */
+export const COMMITTED_VERSION = new RegExp(`^${core}(?:-rc\\.([1-9]\\d*))?$`);
 /** Versions that may be published: automatic dev builds, RCs and stable releases. */
 export const PUBLISHED_VERSION = new RegExp(`^${core}(?:-(dev|rc)\\.([1-9]\\d*))?$`);
 const STABLE_TAG = new RegExp(`^v${core}$`);
@@ -60,26 +61,29 @@ export function latestStableTag(tags) {
     .sort((a, b) => compareCores(parseVersion(a.slice(1)).core, parseVersion(b.slice(1)).core)).at(-1);
 }
 
-/** The committed dev placeholder that follows a published RC (same version) or stable release (next patch). */
-export function nextDevVersion(released) {
-  if (/^\d+\.\d+\.\d+-rc\.[1-9]\d*$/.test(released)) return `${parseVersion(released).text}-dev.0`;
-  if (!/^\d+\.\d+\.\d+$/.test(released)) throw new Error(`Expected an RC or stable version, got ${released}.`);
-  const [major, minor, patch] = parseVersion(released).core;
-  return `${major}.${minor}.${patch + 1}-dev.0`;
+/**
+ * Whether tag `v<version>` exists on `origin`. Queries the remote rather than local tags so a
+ * shallow or stale checkout cannot misclassify a commit; `git ls-remote --exit-code` exits 2
+ * when the tag is absent.
+ */
+export function remoteTagExists(version, { cwd = process.cwd() } = {}) {
+  const result = spawnSync('git', ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/v${version}`], { cwd, encoding: 'utf8' });
+  if (result.status === 0) return true;
+  if (result.status === 2) return false;
+  throw new Error(`Cannot query origin for tag v${version}.`);
 }
 
 /**
- * Publish workflow run mode. A main push with the X.Y.Z-dev.0 placeholder publishes a dev build;
- * a main push with an RC/stable version (a release pull request merge) is verified without
- * publication; a GitHub Release publishes its RC/stable version.
+ * Publish workflow run mode. A main push whose committed version is already tagged on origin
+ * builds a development version; a main push with an untagged RC/stable version (a merged release
+ * pull request) is verified without publication; a GitHub Release publishes its RC/stable version.
+ * `tagExists` is called only for main pushes.
  */
-export function runMode({ event, ref, version }) {
+export function runMode({ event, ref, version, tagExists }) {
   if (event === 'release') return 'release';
   if (event !== 'push' || ref !== 'refs/heads/main') throw new Error('Publication runs only for main pushes and GitHub Releases.');
-  if (/-dev\.0$/.test(version) && COMMITTED_VERSION.test(version)) return 'dev';
-  if (/-dev\./.test(version)) throw new Error(`Committed version ${version} must use the -dev.0 placeholder.`);
-  if (!COMMITTED_VERSION.test(version)) throw new Error(`Unsupported committed version ${version}.`);
-  return 'verify';
+  if (!COMMITTED_VERSION.test(version)) throw new Error(`Committed version ${version} must be an RC or stable version; CI derives development versions.`);
+  return tagExists(version) ? 'dev' : 'verify';
 }
 
 /**
@@ -99,16 +103,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(readVersion(process.cwd()));
     } else if (command === 'set' && value && !rest.length) {
       console.log(setVersion(process.cwd(), value));
-    } else if (command === 'next-dev' && value && !rest.length) {
-      console.log(nextDevVersion(value));
     } else if (command === 'mode' && value === undefined) {
       const version = readVersion(process.cwd());
-      const mode = runMode({ event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF, version });
+      const mode = runMode({ event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF, version, tagExists: remoteTagExists });
       const prefix = smokePrefix(mode);
       if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\nsmoke_prefix=${prefix}\n`);
-      console.log(`Committed version ${version}; run mode ${mode}; live smoke ${prefix}*`);
+      const reason = { dev: `v${version} is tagged on origin`, verify: `v${version} is not tagged yet`, release: 'GitHub Release' }[mode];
+      console.log(`Committed version ${version}; run mode ${mode} (${reason}); live smoke ${prefix}*`);
     } else {
-      throw new Error('Usage: node scripts/version.mjs get | set <version> | next-dev <released-version> | mode');
+      throw new Error('Usage: node scripts/version.mjs get | set <version> | mode');
     }
   } catch (error) {
     console.error(error.message);

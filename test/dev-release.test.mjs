@@ -14,16 +14,19 @@ const artifact = { name, version, sha, integrity, tarball: '/tmp/tested-package.
 const manifest = { name, version, gitHead: sha, dist: { integrity } };
 const state = { version, sha, integrity, branchHead: sha, taggedVersion: '0.1.0-dev.11' };
 
-test('development numbering replaces the dev.0 placeholder, guards regressions and compares numerically', () => {
-  assert.equal(developmentVersion('0.1.0-dev.0', '12'), version);
-  assert.equal(developmentVersion('0.1.0-dev.0', '12', 'v0.0.9'), version);
-  assert.equal(developmentVersion('0.2.0-dev.0', '13', 'v0.1.5'), '0.2.0-dev.13');
-  for (const bad of ['0.1.0', '0.1.0-rc.1', '0.1.0-dev.01', '0.1.0-dev.1', version]) {
-    assert.throws(() => developmentVersion(bad, 12), /committed X\.Y\.Z-dev\.0/);
+test('development versions follow the tagged committed version, guard regressions and compare numerically', () => {
+  // Stable X.Y.Z → next patch; RC X.Y.Z-rc.M → the same core, which sorts below the RC.
+  assert.equal(developmentVersion('0.0.9', '12'), '0.0.10-dev.12');
+  assert.equal(developmentVersion('0.1.5', '3', 'v0.1.5'), '0.1.6-dev.3');
+  assert.equal(developmentVersion('1.9.9', 1, 'v1.9.9'), '1.9.10-dev.1');
+  assert.equal(developmentVersion('0.2.0-rc.1', '13', 'v0.1.5'), '0.2.0-dev.13');
+  assert.equal(developmentVersion('0.2.0-rc.2', '14'), '0.2.0-dev.14');
+  for (const bad of ['0.1.0-dev.0', '0.1.0-dev.1', '0.1.0-dev.01', '0.1.0-rc.0', '0.1.0-beta.1', 'v0.1.0', version]) {
+    assert.throws(() => developmentVersion(bad, 12), /committed RC or stable version/);
   }
-  for (const bad of ['0', '-1', '01', '1.5', 'NaN']) assert.throws(() => developmentVersion('0.1.0-dev.0', bad));
-  for (const tag of ['v0.1.0', 'v0.1.1', 'v1.0.0']) {
-    assert.throws(() => developmentVersion('0.1.0-dev.0', 12, tag), /must be newer than the latest stable release/);
+  for (const bad of ['0', '-1', '01', '1.5', 'NaN']) assert.throws(() => developmentVersion('0.1.0', bad));
+  for (const [committed, tag] of [['0.1.0', 'v0.1.1'], ['0.1.0-rc.1', 'v0.1.0'], ['0.1.0-rc.1', 'v1.0.0']]) {
+    assert.throws(() => developmentVersion(committed, 12, tag), /must be newer than the latest stable release/);
   }
   assert.equal(compareDevelopmentVersions('0.1.0-dev.10', '0.1.0-dev.2'), 1);
   assert.equal(compareDevelopmentVersions('0.2.0-dev.1', '0.1.0-dev.999'), 1);
@@ -54,8 +57,12 @@ test('stale jobs cannot publish or move dev backward, and reruns verify commit a
   }
   assert.throws(() => publicationPlan({ ...state, taggedVersion: version }), /disagreement/);
   assert.throws(() => publicationPlan({ ...state, existing: manifest }), /points elsewhere/);
-  // The same version from another commit fails even when the dev tag has moved past it.
-  assert.throws(() => publicationPlan({ ...state, taggedVersion: '0.2.0-dev.1', existing: { ...manifest, gitHead: 'b'.repeat(40) } }), /differs/);
+  // The dev tag never moves backwards: a lower version is skipped before any artifact comparison,
+  // even when an earlier flow already published that version from another commit.
+  assert.equal(publicationPlan({ ...state, version: '0.1.6-dev.3', taggedVersion: '0.2.0-dev.2' }), 'superseded');
+  assert.equal(publicationPlan({ ...state, taggedVersion: '0.2.0-dev.1', existing: { ...manifest, gitHead: 'b'.repeat(40) } }), 'superseded');
+  // At or above the dev tag, the same version from another commit still fails.
+  assert.throws(() => publicationPlan({ ...state, taggedVersion: '0.1.0-dev.11', existing: { ...manifest, gitHead: 'b'.repeat(40) } }), /differs/);
 });
 
 function registry({ publishFailure = false, lag = false, manifestDelayMs = 0, tagDelayMs = 0 } = {}) {
@@ -91,6 +98,16 @@ test('publishes the tested artifact once on dev and skips an identical rerun', a
   assert.deepEqual(api.calls.filter(args => args[0] === 'publish'), [
     ['publish', artifact.tarball, '--access', 'public', '--tag', 'dev', '--provenance'],
   ]);
+});
+
+test('a version below the dev dist-tag is skipped with a notice and never written', async () => {
+  const api = registry();
+  const run = api.run;
+  api.run = (args, options) => args[2] === 'dist-tags'
+    ? { status: 0, stdout: JSON.stringify({ dev: '0.2.0-dev.2', latest: '0.1.5' }) } : run(args, options);
+  assert.equal(await publishPackage({ ...artifact, version: '0.1.6-dev.3' }, api), 'superseded');
+  assert.equal(api.calls.filter(args => args[0] === 'publish').length, 0);
+  assert.deepEqual(api.reports, [`Skipping publication: ${name}@0.1.6-dev.3 is lower than the current dev dist-tag 0.2.0-dev.2, which never moves backwards.`]);
 });
 
 test('publish failures and verification lag never retry the registry write', async () => {
@@ -260,8 +277,9 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   const reset = () => runGit(repo, 'checkout', '-q', '--', 'package.json', 'package-lock.json');
   const prepared = () => JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
 
-  // Without a stable tag the count starts at the root commit.
-  commit('0.1.0-dev.0', 'initial');
+  // Without a stable tag the count starts at the root commit; a tagged RC builds its own core.
+  commit('0.1.0-rc.1', 'initial');
+  runGit(repo, 'tag', 'v0.1.0-rc.1');
   let head = commit(undefined, 'second');
   assert.throws(() => prepare(head, { GITHUB_EVENT_NAME: 'pull_request' }));
   assert.throws(() => prepare(head, { GITHUB_REF: 'refs/heads/develop' }));
@@ -276,26 +294,56 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   assert.match(prepare(head), /version=0\.1\.0-dev\.2\n/, 'the same commit maps to the same version');
   reset();
 
-  // A stable tag resets the count; RC tags do not. Merge commits count once on the first-parent path.
-  commit('0.1.0', 'release 0.1.0');
+  // A stable release resets the count and the next commits build the next patch. RC tags do not
+  // reset the count. Merge commits count once on the first-parent path.
+  head = commit('0.1.0', 'release 0.1.0');
   runGit(repo, 'tag', 'v0.1.0');
-  head = commit('0.1.0-dev.0', 'forgot the next version');
-  assert.throws(() => prepare(head), /must be newer than the latest stable release v0\.1\.0/);
-  commit('0.1.1-dev.0', 'next development version');
+  // A rerun of the stable release commit once its tag exists (N = 0) skips cleanly with a notice.
+  const releaseRerun = prepare(head);
+  assert.match(releaseRerun, /::notice title=Development publication skipped::HEAD is the stable release v0\.1\.0/);
+  assert.match(releaseRerun, /ready=false/);
+  assert.doesNotMatch(releaseRerun, /version=/);
+  assert.equal(prepared().version, '0.1.0');
+  assert.equal(prepared().gitHead, undefined);
+  // A tag pushed after the checkout (present on origin only) is fetched before numbering, so the
+  // release commit still skips instead of publishing a version counted from an older tag.
+  runGit(repo, 'push', '-q', 'origin', 'v0.1.0');
+  runGit(repo, 'tag', '-d', 'v0.1.0');
+  assert.match(prepare(head), /Development publication skipped[^\n]*v0\.1\.0[\s\S]*ready=false/);
+  assert.equal(runGit(repo, 'rev-parse', 'v0.1.0^{commit}'), head);
+  head = commit(undefined, 'fix after 0.1.0');
+  assert.match(prepare(head), /version=0\.1\.1-dev\.1\n/);
+  reset();
   runGit(repo, 'checkout', '-q', '-b', 'feature');
   commit(undefined, 'feature one');
   commit(undefined, 'feature two');
   runGit(repo, 'checkout', '-q', 'main');
   runGit(repo, 'merge', '--no-ff', '-q', '-m', 'merge feature', 'feature');
   runGit(repo, 'push', '-q', 'origin', 'main');
-  assert.match(prepare(runGit(repo, 'rev-parse', 'HEAD')), /version=0\.1\.1-dev\.3\n/);
+  assert.match(prepare(runGit(repo, 'rev-parse', 'HEAD')), /version=0\.1\.1-dev\.2\n/);
   reset();
-  commit('0.1.1-rc.1', 'release 0.1.1-rc.1');
-  runGit(repo, 'tag', 'v0.1.1-rc.1');
-  assert.throws(() => prepare(runGit(repo, 'rev-parse', 'HEAD')), /require a committed X\.Y\.Z-dev\.0/);
-  head = commit('0.1.1-dev.0', 'back to development');
-  assert.match(prepare(head), /version=0\.1\.1-dev\.5\n/);
+  commit('0.2.0-rc.1', 'release 0.2.0-rc.1');
+  runGit(repo, 'tag', 'v0.2.0-rc.1');
+  head = commit(undefined, 'fix after 0.2.0-rc.1');
+  assert.match(prepare(head), /version=0\.2\.0-dev\.4\n/);
   reset();
+
+  // A committed development form fails, as does a version at or below the newest stable tag.
+  head = commit('0.2.0-dev.0', 'committed placeholder');
+  assert.throws(() => prepare(head), /require a committed RC or stable version/);
+  head = commit('0.0.9', 'regressed version');
+  runGit(repo, 'tag', 'v0.0.9');
+  assert.throws(() => prepare(head), /0\.0\.10-dev\.6 must be newer than the latest stable release v0\.1\.0/);
+  head = commit('0.2.0-rc.1', 'back to the released RC');
+  assert.match(prepare(head), /version=0\.2\.0-dev\.7\n/);
+  reset();
+  // N = 0 is skipped only for the tagged stable release itself; any other N = 0 state still fails.
+  const mistagged = commit(undefined, 'stable tag that does not match the committed version');
+  runGit(repo, 'tag', 'v0.3.0');
+  assert.throws(() => prepare(mistagged), /Expected at least one first-parent commit/);
+  // A committed version whose tag exists neither locally nor on origin fails closed.
+  const untagged = commit('0.2.0-rc.2', 'untagged release candidate');
+  assert.throws(() => prepare(untagged), /refs\/tags\/v0\.2\.0-rc\.2/);
 
   // A superseded commit reports not ready and leaves the checkout untouched.
   commit(undefined, 'newer main head');
