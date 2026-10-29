@@ -270,8 +270,9 @@ a future release candidate.
 | `release` | Published GitHub Release | Production, then publication | `LAMBDADB_PROD_` |
 
 `node scripts/version.mjs mode` selects the run mode and its Variable prefix. A
-dev run superseded before preparation (no longer the head of `main`) skips the
-smoke together with publication.
+dev run superseded before preparation (no longer the head of `main`), or a
+rerun of the tagged stable release commit itself, skips the smoke together with
+publication.
 
 After the exact publication artifact passes its installed-package tests, the
 publication job assumes the environment's AWS role through GitHub OIDC and runs
@@ -422,9 +423,12 @@ stable release tag (`vA.B.C`) reachable from that commit, or since the root
 commit when there is none. N is the same on every rerun of a commit, restarts at
 1 after each stable release, and keeps increasing across the RCs of one version.
 For example, committed `0.11.0` (tagged) builds `0.11.1-dev.N`, and committed
-`0.12.0-rc.1` (tagged) builds `0.12.0-dev.N`. Preparation fails for a committed
-development version, and when the derived version is not newer than the newest
-stable tag. Generated package/lock versions and `gitHead` (the source commit)
+`0.12.0-rc.1` (tagged) builds `0.12.0-dev.N`. A rerun of the stable release
+commit's own `main` push after its tag exists (N would be 0) skips preparation,
+the smoke and publication with a `Development publication skipped` notice and
+succeeds; its GitHub Release publishes that commit. Preparation fails for a
+committed development version, for any other N = 0 state, and when the derived
+version is not newer than the newest stable tag. Generated package/lock versions and `gitHead` (the source commit)
 exist only in the runner; no version commits, tags or GitHub Releases are
 created for dev builds. Disable force pushes/history rewrites; numbers can have
 gaps when pushes are superseded.

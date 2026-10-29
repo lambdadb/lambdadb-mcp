@@ -296,8 +296,15 @@ test('preparation counts first-parent commits since the newest stable tag on mai
 
   // A stable release resets the count and the next commits build the next patch. RC tags do not
   // reset the count. Merge commits count once on the first-parent path.
-  commit('0.1.0', 'release 0.1.0');
+  head = commit('0.1.0', 'release 0.1.0');
   runGit(repo, 'tag', 'v0.1.0');
+  // A rerun of the stable release commit once its tag exists (N = 0) skips cleanly with a notice.
+  const releaseRerun = prepare(head);
+  assert.match(releaseRerun, /::notice title=Development publication skipped::HEAD is the stable release v0\.1\.0/);
+  assert.match(releaseRerun, /ready=false/);
+  assert.doesNotMatch(releaseRerun, /version=/);
+  assert.equal(prepared().version, '0.1.0');
+  assert.equal(prepared().gitHead, undefined);
   head = commit(undefined, 'fix after 0.1.0');
   assert.match(prepare(head), /version=0\.1\.1-dev\.1\n/);
   reset();
@@ -323,6 +330,10 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   head = commit('0.2.0-rc.1', 'back to the released RC');
   assert.match(prepare(head), /version=0\.2\.0-dev\.7\n/);
   reset();
+  // N = 0 is skipped only for the tagged stable release itself; any other N = 0 state still fails.
+  const mistagged = commit(undefined, 'stable tag that does not match the committed version');
+  runGit(repo, 'tag', 'v0.3.0');
+  assert.throws(() => prepare(mistagged), /Expected at least one first-parent commit/);
 
   // A superseded commit reports not ready and leaves the checkout untouched.
   commit(undefined, 'newer main head');

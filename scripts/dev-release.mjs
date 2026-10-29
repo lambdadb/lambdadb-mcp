@@ -125,6 +125,12 @@ function prepare() {
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
   const { tag, count } = stableBase();
+  if (count === '0' && tag === `v${pkg.version}`) {
+    // A rerun of the stable release commit after its tag exists; its GitHub Release publishes it.
+    console.log(`::notice title=Development publication skipped::HEAD is the stable release ${tag}; there is no development version to build.`);
+    output('ready', 'false');
+    return;
+  }
   const version = developmentVersion(pkg.version, count, tag);
   // A newer main push supersedes this commit; only the current head publishes.
   if (sha !== mainHead()) { output('ready', 'false'); return; }
