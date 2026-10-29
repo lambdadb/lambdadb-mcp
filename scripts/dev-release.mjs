@@ -124,6 +124,12 @@ function prepare() {
   const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   checkMetadata(pkg, lock);
   if (pkg.name !== packageName) throw new Error('Unexpected package name.');
+  // Mode selection found v<version> on origin. If that tag was pushed after this checkout, fetch it
+  // so numbering uses the same tag snapshot; a missing remote tag fails here.
+  const committedTag = `v${pkg.version}`;
+  if (COMMITTED_VERSION.test(pkg.version) && !git('tag', '--list', committedTag)) {
+    git('fetch', '--quiet', '--no-tags', 'origin', `refs/tags/${committedTag}:refs/tags/${committedTag}`);
+  }
   const { tag, count } = stableBase();
   if (count === '0' && tag === `v${pkg.version}`) {
     // A rerun of the stable release commit after its tag exists; its GitHub Release publishes it.

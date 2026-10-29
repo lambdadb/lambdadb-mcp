@@ -305,6 +305,12 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   assert.doesNotMatch(releaseRerun, /version=/);
   assert.equal(prepared().version, '0.1.0');
   assert.equal(prepared().gitHead, undefined);
+  // A tag pushed after the checkout (present on origin only) is fetched before numbering, so the
+  // release commit still skips instead of publishing a version counted from an older tag.
+  runGit(repo, 'push', '-q', 'origin', 'v0.1.0');
+  runGit(repo, 'tag', '-d', 'v0.1.0');
+  assert.match(prepare(head), /Development publication skipped[^\n]*v0\.1\.0[\s\S]*ready=false/);
+  assert.equal(runGit(repo, 'rev-parse', 'v0.1.0^{commit}'), head);
   head = commit(undefined, 'fix after 0.1.0');
   assert.match(prepare(head), /version=0\.1\.1-dev\.1\n/);
   reset();
@@ -326,6 +332,7 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   head = commit('0.2.0-dev.0', 'committed placeholder');
   assert.throws(() => prepare(head), /require a committed RC or stable version/);
   head = commit('0.0.9', 'regressed version');
+  runGit(repo, 'tag', 'v0.0.9');
   assert.throws(() => prepare(head), /0\.0\.10-dev\.6 must be newer than the latest stable release v0\.1\.0/);
   head = commit('0.2.0-rc.1', 'back to the released RC');
   assert.match(prepare(head), /version=0\.2\.0-dev\.7\n/);
@@ -334,6 +341,9 @@ test('preparation counts first-parent commits since the newest stable tag on mai
   const mistagged = commit(undefined, 'stable tag that does not match the committed version');
   runGit(repo, 'tag', 'v0.3.0');
   assert.throws(() => prepare(mistagged), /Expected at least one first-parent commit/);
+  // A committed version whose tag exists neither locally nor on origin fails closed.
+  const untagged = commit('0.2.0-rc.2', 'untagged release candidate');
+  assert.throws(() => prepare(untagged), /refs\/tags\/v0\.2\.0-rc\.2/);
 
   // A superseded commit reports not ready and leaves the checkout untouched.
   commit(undefined, 'newer main head');

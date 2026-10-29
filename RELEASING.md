@@ -428,7 +428,9 @@ commit's own `main` push after its tag exists (N would be 0) skips preparation,
 the smoke and publication with a `Development publication skipped` notice and
 succeeds; its GitHub Release publishes that commit. Preparation fails for a
 committed development version, for any other N = 0 state, and when the derived
-version is not newer than the newest stable tag. Generated package/lock versions and `gitHead` (the source commit)
+version is not newer than the newest stable tag. If the committed version's tag
+was pushed after the job's checkout, preparation fetches it from `origin` first,
+so run-mode selection and numbering use the same tag. Generated package/lock versions and `gitHead` (the source commit)
 exist only in the runner; no version commits, tags or GitHub Releases are
 created for dev builds. Disable force pushes/history rewrites; numbers can have
 gaps when pushes are superseded.
