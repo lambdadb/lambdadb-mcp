@@ -307,11 +307,12 @@ in the pending queue and still needs publication.
   the PR is still merged with a merge commit.
 - Hotfix: cut `hotfix/X.Y.Z` from `main`, open a PR into main merged with a merge
   commit, tag and publish, then back-merge main into develop as above.
-- Delete `release/*` and `hotfix/*` branches after their final promotion PR
-  merges.
+- Keep `release/X.Y.Z` through its RCs and delete it after the final stable
+  promotion merges; delete `hotfix/*` after its merge into main.
 
-CI triggers cover only PRs into and pushes to `develop`/`main`, so PRs into a
-release or hotfix branch are not validated by CI; the PR into main is. Only
+CI triggers cover only PRs into and pushes to `develop`/`main`, so CI does not
+run on PRs into a release or hotfix branch. Run `npm ci`, `npm run check` and
+`npm run test:package` locally for those PRs; CI validates the PR into main. Only
 develop pushes publish dev versions; a develop push whose version is not
 `X.Y.Z-dev.N` fails closed in `scripts/dev-release.mjs prepare` and publishes
 nothing.
@@ -342,7 +343,8 @@ branches are not covered.
    is not publication evidence. Verify npm.
 6. Back-merge main into develop with a `main` -> `develop` merge-commit PR,
    keeping develop's dev base. For another RC, fix on the release branch and
-   repeat from step 2; delete the release branch after the final promotion.
+   repeat from step 2; delete the release branch after the final stable
+   promotion.
 
 ## Duplicate prevention, registry lag and recovery
 
