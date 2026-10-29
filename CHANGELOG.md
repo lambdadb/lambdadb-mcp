@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Move releases to trunk-based `main`; `develop` is retired. `main` carries the
+  next version as `X.Y.Z-dev.0` (now `0.2.0-dev.0`), and each eligible merge
+  publishes `X.Y.Z-dev.N`, where N counts first-parent commits since the newest
+  stable tag and restarts after each stable release. A merge that sets an RC or
+  stable version is verified without publication, and its GitHub Release
+  publishes it. After publication, a workflow opens the next development version
+  pull request. `scripts/version.mjs` updates every version source.
+
+- Pin the LambdaDB SDK to 0.10.0. Expand Query/Fetch/List and rerank limits to
+  1000 on supporting servers, retaining facet and collection-list limits of 100.
+  Vector dimensions now require integers from 64 to 4096 and similarity accepts
+  only cosine/euclidean; invalid requests and existing out-of-contract collection
+  metadata fail SDK validation. Update vector fixtures and native source guidance.
+
+- Synchronize the 0.1.5 release history and start the 0.1.6 development line.
+
 ## [0.1.5] - 2026-10-25
 
 - Pin MCP SDK 1.32.2, raise the Zod minimum to 4.6.7, and refresh the affected

@@ -29,7 +29,7 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
   let stage = "setup";
   const fields = { include: ["id", "body"] };
   const lexical = { queryString: { query: "body:restore" } };
-  const vector = { knn: { field: "raw", queryVector: [1, 0], k: 30 } };
+  const vector = { knn: { field: "raw", queryVector: [1, ...Array(63).fill(0)], k: 30 } };
   const query = { bayesian: [lexical, vector] };
   const rerank = { provider: "typesafe", model: "jev-1.13.0", queryText: "How do I restore a version?", fields: ["body"] };
   const embedding = { provider: "openai", model: "text-embedding-3-small", sourceField: "body" };
@@ -75,7 +75,7 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
     await client.connect(clientTransport);
     stage = "native and legacy create";
     await call("create_collection", { indexConfigs: {
-      body: { type: "text" }, raw: { type: "vector", dimensions: 2, similarity: "cosine" },
+      body: { type: "text" }, raw: { type: "vector", dimensions: 64, similarity: "cosine" },
       native: { type: "vector", embedding: { ...embedding, dimensions: 512, similarity: "cosine" } },
       legacy: { type: "vector", managedEmbedding: true, embedding }
     }, tags: { purpose: "mcp-bayesian-smoke" }, snapshotRetentionInDays: 1 });
@@ -88,7 +88,7 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
     assert.equal(metadata.native.embedding.dimensions, 512);
     stage = "actual document embeddings";
     for (const [i, body] of ["Restore a saved collection version using a branch.", "Restore documents from a saved snapshot."].entries()) {
-      await call("upsert_docs", { docs: [{ id: `doc-${i}`, body, raw: [1, i], payload }] });
+      await call("upsert_docs", { docs: [{ id: `doc-${i}`, body, raw: [1, i, ...Array(62).fill(0)], payload }] });
     }
     const deadline = Date.now() + 300_000;
     while ((await call("list_docs", { size: 2, fields })).docs.length !== 2) {
@@ -119,7 +119,7 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
       { query: { bayesian: [{ bool: [{ bool: [{ ...lexical, boost: 1 }] }] }, vector] } },
       ...["bayesian", "rrf", "mm", "l2"].map(method => ({ query: { bayesian: [{ [method]: [lexical, vector] }, vector] } })),
       { query: { bool: [query] } },
-      { candidateSize: undefined }, { candidateSize: 0 }, { candidateSize: 1 }, { candidateSize: 101 },
+      { candidateSize: undefined }, { candidateSize: 0 }, { candidateSize: 1 }, { candidateSize: 1001 },
       { rerank }, { query: lexical }, { query: vector },
       ...["rrf", "mm", "l2"].map(method => ({ query: { [method]: [lexical, vector] } }))
     ];
