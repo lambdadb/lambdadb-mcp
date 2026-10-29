@@ -27,7 +27,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -50,23 +49,25 @@ jobs:
             exit 0
           fi
           NEXT=$(node scripts/version.mjs next-dev "$RELEASED")
-          BRANCH="chore/next-dev-$NEXT"
-          MAIN=$(git rev-parse HEAD)
-          OPEN=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq length)
-          # Reruns are safe: keep an open pull request whose branch already contains main;
-          # otherwise (partial earlier run, stale branch) recreate the branch from main.
-          if [ "$OPEN" != 0 ] && git fetch --quiet origin "refs/heads/$BRANCH" &&
-              git merge-base --is-ancestor "$MAIN" FETCH_HEAD; then
-            echo "$BRANCH has an open pull request based on the current main; nothing to do"
-            exit 0
+          # Name the branch after the release: consecutive RCs restore the same development
+          # version, so a version-named branch would match an earlier RC's merged pull request.
+          BRANCH="chore/next-dev-after-$RELEASE_TAG"
+          # Each part is idempotent, so a rerun completes a partially finished run.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "$BRANCH already exists; reusing it"
+          else
+            node scripts/version.mjs set "$NEXT"
+            git switch -c "$BRANCH"
+            git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "chore: start $NEXT development"
+            git push origin "$BRANCH"
           fi
-          node scripts/version.mjs set "$NEXT"
-          git switch -C "$BRANCH"
-          git -c user.name="github-actions[bot]" \
-            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -am "chore: start $NEXT development"
-          git push --force origin "$BRANCH"
-          if [ "$OPEN" = 0 ]; then
+          STATE=$(gh pr list --head "$BRANCH" --base main --state all --json state --jq '.[0].state // ""')
+          if [ -z "$STATE" ]; then
+            # main requires no status checks, so CI is not dispatched for this pull request.
             gh pr create --base main --head "$BRANCH" --title "chore: start $NEXT development" --body \
               "$RELEASE_TAG is published. This restores the development placeholder so dev builds resume as \`${NEXT%.0}.N\`, above the released version. Change the version with \`node scripts/version.mjs set X.Y.Z-dev.0\` if the next release is a minor or major version. Pull requests opened by GitHub Actions do not trigger CI; run the CI workflow on this branch manually for checks before merging, and the main push runs the full checks when this merges."
+          else
+            echo "The $BRANCH pull request is $STATE; nothing to do"
           fi
