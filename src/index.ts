@@ -6,8 +6,9 @@ import { createServer } from "./server/createServer.js";
 
 async function main(): Promise<void> {
   // stdout is the MCP transport. The SDK's LAMBDADB_DEBUG logger prints requests,
-  // including the API key header, to stdout, and SDK 0.11.0 and earlier enable
-  // it for any non-empty value, including "false". Never let it run here.
+  // including the API key header, to stdout. SDK 0.11.0 and earlier enable
+  // it for any non-empty value, including "false"; 0.11.1 only for "true" or "1".
+  // Never let it run here.
   delete process.env.LAMBDADB_DEBUG;
   const config = getEnvConfig();
   const server = createServer(config);

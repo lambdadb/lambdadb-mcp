@@ -39,7 +39,7 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-MCP 0.2.1 pins LambdaDB SDK `0.11.0`: Cohere native embedding and reranking,
+The current source pins LambdaDB SDK `0.11.1`: Cohere native embedding and reranking,
 ordered embedding `sources`, `knn.queryInputs`, the server-managed `id` field and
 1000-result Query/Fetch/List limits. Vector dimensions must be 64 to 4096 and
 similarity cosine or euclidean. Releases are trunk-based on `main`, which carries
@@ -116,6 +116,11 @@ LAMBDADB_PROJECT_API_KEY=replace-me
 LAMBDADB_MCP_ENABLE_WRITE_TOOLS=false
 ```
 
+Tool results are compact JSON, and SDK validation failures are reported as one
+`path: message` line per issue. The server does not cap result size: keep `size`
+small while exploring and use `fields` to leave out large stored fields, as the
+tool descriptions advise.
+
 The server ignores the LambdaDB SDK's `LAMBDADB_DEBUG` variable. That logger
 writes requests, including the API key header, to stdout, which is the MCP
 transport.
@@ -129,17 +134,99 @@ Read-only:
 - `lambdadb_query_collection`
 - `lambdadb_list_docs`
 - `lambdadb_fetch_docs`
+- `lambdadb_list_branches`
+- `lambdadb_list_tags`
+- `lambdadb_list_aliases`
 
 Optional write tools:
 
 - `lambdadb_create_collection`
 - `lambdadb_upsert_docs`
 - `lambdadb_delete_docs`
+- `lambdadb_update_docs`
+- `lambdadb_bulk_upsert_docs`
+- `lambdadb_update_collection`
+- `lambdadb_delete_collection`
+- `lambdadb_create_branch`
+- `lambdadb_delete_branch`
+- `lambdadb_create_tag`
+- `lambdadb_delete_tag`
+- `lambdadb_create_alias`
+- `lambdadb_retarget_alias`
+- `lambdadb_delete_alias`
+
+All mutation tools require `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`; authorization
+is still required for the requested operation.
+
+### Version and mutation workflows
+
+Every tool below requires `collectionName` in addition to the listed inputs.
+Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
+
+| Tool suffix (after `lambdadb_`) | Inputs and behavior |
+| --- | --- |
+| `list_branches`, `list_tags`, `list_aliases` | Return existing refs and their metadata. Available in read-only mode. |
+| `create_branch` | `branchName`, optional `source: {kind: "branch", name, asOf?}`. Omitted source uses main. Copies committed state only. |
+| `create_tag` | `tagName`, optional branch source as above or `{kind: "tag", name}`. Omitted source uses main. Pins committed state for immutable reads. |
+| `create_alias` | `aliasName`, `target: {kind: "branch" | "tag", name}`. |
+| `retarget_alias` | `aliasName`, `target` as above. Changes future alias reads, not write targets or stored data. |
+| `delete_branch`, `delete_tag`, `delete_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Deleting an alias does not delete its target. |
+| `update_docs` | `docs` with existing IDs and optional `branch`. Preserves omitted fields, merges nested objects and replaces arrays. Missing IDs fail rather than insert. |
+| `bulk_upsert_docs` | `docs` and optional `branch`. Runs the SDK's upload-URL, upload, and ingestion workflow. |
+| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`; `null` clears the latter three. Index changes are additive; no automatic historical backfill. |
+| `delete_collection` | Deletes the collection, including its data and refs. |
+
+`asOf` is an integer Unix epoch millisecond cutoff, not an ISO date string.
+Branch sources cannot be tags or aliases. Tags cannot use an alias source, and
+a tag source cannot have `asOf`. Alias targets cannot be aliases or use `asOf`.
+Missing/expired history and referenced-ref conflicts remain errors; the tools
+never silently switch to main or delete dependent refs. Main cannot be deleted
+as a branch. Delete or retarget referencing aliases before deleting a branch/tag.
+Deleting a tag removes its retention pin. Metadata `tags` on a collection are
+separate from version Tags.
+
+Creating a branch/tag immediately after a write does not prove the write is
+included: these operations use committed snapshots, while ordinary writes can
+still be pending. A tag fixes the retrieval dataset; it does not checkpoint an
+agent's conversation, execution state, or external effects. Branch merge/reset
+is not added by these tools.
+
+Bulk inputs must fit the MCP SDK's 10 MiB stdio receive limit, including JSON-RPC
+overhead; this tool does not accept local paths or URLs. Use the LambdaDB SDK
+outside MCP for larger files. Native embedding fields require caller-supplied
+vectors for bulk ingestion; bulk never generates embeddings. Pending bulk imports
+are not included by `consistentRead`. Acceptance is not committed visibility.
+The SDK forwards signed upload headers without the project API key and does not
+finalize a failed upload. Inspect uncertain results before retrying a mutation.
+
+For example, call `lambdadb_create_branch` with:
+
+```json
+{"collectionName":"memories","branchName":"candidate","source":{"kind":"branch","name":"main"}}
+```
+
+Write and evaluate on that branch. Once the intended data is committed, call
+`lambdadb_create_tag` with:
+
+```json
+{"collectionName":"memories","tagName":"reviewed","source":{"kind":"branch","name":"candidate"}}
+```
+
+Evaluate reads using `ref: {"kind":"tag","name":"reviewed"}`. To switch an
+**existing** serving alias, call `lambdadb_retarget_alias` with:
+
+```json
+{"collectionName":"memories","aliasName":"serving","target":{"kind":"tag","name":"reviewed"}}
+```
+
+Use `lambdadb_create_alias` for the initial alias. Writes continue to target a
+branch explicitly. SDK `*Safe()` variants, automatic all-page collection, request
+retry controls and Qdrant compatibility are not separate MCP tools.
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.11.0`, checked against
-the published package and [v0.11.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/CHANGELOG.md).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.11.1`, checked against
+the published package and [v0.11.1 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/CHANGELOG.md).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -350,7 +437,7 @@ with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
 server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
-that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-embeddings.md).
+that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/docs/native-embeddings.md).
 
 <a id="optional-managed-reranking"></a>
 
@@ -359,7 +446,7 @@ that true flag. See the [native embedding contract](https://github.com/lambdadb/
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
 LambdaDB supplies provider credentials; only the existing project API key is needed.
-See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.0/docs/native-reranking.md).
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/docs/native-reranking.md).
 
 ```json
 {
@@ -511,8 +598,10 @@ must support these features. It writes two 3 MiB documents to force actual `docs
 through the MCP tools and checks full payload integrity and download credential
 isolation. It allows up to five minutes for committed visibility, deletes its
 temporary collection in cleanup, and verifies that the collection is absent.
-Branch/Tag/Alias setup and collection cleanup use the SDK directly because these
-operations are not exposed as MCP tools. This test is separate from `npm run check`.
+The live suite uses MCP for ref creation/discovery, alias retargeting, document
+patches, bulk ingestion, ref deletion and the final collection deletion. Cleanup
+falls back to the SDK if the MCP deletion did not run and verifies absence through
+the SDK. This test is separate from `npm run check`.
 
 Native reranking has a separate live suite because it requires enabled
 `typesafe` / `jev-1.13.0` and Cohere `rerank-v5.0-fast` / `rerank-v5.0-pro` models

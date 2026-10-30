@@ -6,15 +6,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import type { EnvConfig } from "../config/env.js";
-import { createLambdaDBClient } from "../lambdadb/client.js";
-import { formatLambdaDBError } from "../lambdadb/errors.js";
 import {
   fieldsSchema,
   jsonResult,
   nameSchema,
   partitionFilterSchema,
   readOptions,
-  readRefSchema
+  readRefSchema,
+  withLambdaDB
 } from "./shared.js";
 
 const facetsSchema = z.record(z.string(), z.strictObject({
@@ -36,7 +35,7 @@ const rerankOptions = {
   onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
     .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures.")
 };
-// SDK 0.11.0 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
+// SDK 0.11.1 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
 const rerankSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("typesafe"),
@@ -53,6 +52,9 @@ const rerankSchema = z.discriminatedUnion("provider", [
   })
 ]).nullable().optional().describe("Optional per-query native reranking with typesafe/jev-1.13.0 (optional criteria) or cohere/rerank-v5.0-pro|rerank-v5.0-fast (no criteria); requires a scoring query and positive size, forbids sort. LambdaDB supplies provider credentials; model availability depends on the server.");
 
+const includeVectorsSchema = z.boolean().optional()
+  .describe("Include stored vector values in returned documents; default false because vectors make responses large.");
+
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
     "lambdadb_list_collections",
@@ -64,26 +66,21 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         openWorldHint: false
       },
       inputSchema: z.strictObject({
-        size: z.number().int().min(1).max(100).optional(),
-        pageToken: z.string().optional()
+        size: z.number().int().min(1).max(100).optional().describe("Collections per page (1–100)."),
+        pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response.")
       })
     },
-    async ({ size, pageToken }) => {
-      try {
-        const client = createLambdaDBClient(config);
-        const result = await client.listCollections({ size, pageToken });
-        return jsonResult("Collections listed successfully.", result);
-      } catch (error) {
-        throw new Error(formatLambdaDBError(error));
-      }
-    }
+    ({ size, pageToken }) => withLambdaDB(config, async client => {
+      const result = await client.listCollections({ size, pageToken });
+      return jsonResult("Collections listed successfully.", result);
+    })
   );
 
   server.registerTool(
     "lambdadb_get_collection",
     {
       title: "Get Collection",
-      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents.",
+      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -92,15 +89,10 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         collectionName: nameSchema
       })
     },
-    async ({ collectionName }) => {
-      try {
-        const client = createLambdaDBClient(config);
-        const result = await client.collection(collectionName).get();
-        return jsonResult("Collection metadata loaded successfully.", result);
-      } catch (error) {
-        throw new Error(formatLambdaDBError(error));
-      }
-    }
+    ({ collectionName }) => withLambdaDB(config, async client => {
+      const result = await client.collection(collectionName).get();
+      return jsonResult("Collection metadata loaded successfully.", result);
+    })
   );
 
   server.registerTool(
@@ -108,7 +100,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Query Collection",
       description:
-        "Search actual indexed fields; inspect metadata with lambdadb_get_collection first. Omit query for a small match-all sample. Results wrap document fields under docs[].doc; returned documents are not all matches. Empty results alone do not prove an error or indexing delay. Optional Bayesian hybrid search, native reranking and keyword facets require a supporting server; facets require newly built keyword indexes. size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status.",
+        "Search documents with full-text, vector, boolean, or hybrid queries and return ranked results. Call lambdadb_get_collection first to learn field names and index types. Omit query for a small match-all sample; use lambdadb_fetch_docs for known IDs and lambdadb_list_docs to scan without ranking. Results wrap document fields under docs[].doc and are not all matches; empty results alone do not prove an error or indexing delay. Optional Bayesian hybrid search, native reranking and keyword facets require a supporting server; facets require newly built keyword indexes. size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -116,13 +108,13 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         size: z.number().int().min(0).max(1000).optional()
-          .describe("Documents to return (1–1000), or 0 with nonempty facets."),
+          .describe("Documents to return (1–1000), or 0 with nonempty facets. Keep exploration small (20 or fewer) and use fields to leave out large stored fields; every returned document is passed through in full."),
         // Preserve SDK/server validation and error classification for free-form queries.
         candidateSize: z.number().int().optional().describe(
           "Bayesian without rerank requires 1 <= size <= candidateSize <= 1000 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
         ),
         query: z.record(z.string(), z.any()).optional().describe(
-          "Free-form query; omit for match-all. Native embedding KNN uses exactly one of queryText, ordered queryInputs [{type: 'text'|'image', value}] or queryVector (a direct vector skips inference); caller-provided vector fields use queryVector. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
+          "Query object; omit for match-all. Full-text: {queryString: {query: 'refund policy', defaultField: 'text'}} with Lucene syntax (field:value, AND/OR/NOT, \"phrase\", wildcard*, ranges [a TO b], *:* match-all). Vector: {knn: {field: 'embedding', queryText: '...' or queryVector: [...], k: 10, filter?: {queryString: ...}}}; native embedding fields use exactly one of queryText, ordered queryInputs [{type: 'text'|'image', value}] or queryVector (a direct vector skips inference), caller-provided vector fields use queryVector. Boolean: {bool: [{queryString: {...}, occur: 'filter'|'must'|'must_not'|'should', boost?}, ...]} with one query-type key per clause. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
         ),
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
@@ -130,11 +122,11 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         consistentRead: z.boolean().optional().describe(
           "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429. Do not change the default just because a query is empty."
         ),
-        includeVectors: z.boolean().optional(),
+        includeVectors: includeVectorsSchema,
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
         sort: z.array(z.record(
-          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/)
-        )).optional(),
+          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/, "Sort direction must be 'asc' or 'desc'.")
+        )).optional().describe("Ordered single-key objects mapping an indexed field to 'asc' or 'desc', e.g. [{createdAt: 'desc'}]. Omit for score order; not allowed with rerank."),
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
       }).superRefine((input, context) => {
@@ -156,7 +148,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         }
       })
     },
-    async ({
+    ({
       collectionName,
       size,
       candidateSize,
@@ -169,27 +161,22 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       sort,
       fields,
       partitionFilter
-    }) => {
-      try {
-        const client = createLambdaDBClient(config);
-        const input: QueryCollectionInput = {
-          query,
-          facets,
-          rerank,
-          size,
-          candidateSize,
-          ...readOptions(ref, consistentRead),
-          includeVectors,
-          sort,
-          fields,
-          partitionFilter
-        };
-        const result = await client.collection(collectionName).query(input);
-        return jsonResult("Collection query completed successfully.", result);
-      } catch (error) {
-        throw new Error(formatLambdaDBError(error));
-      }
-    }
+    }) => withLambdaDB(config, async client => {
+      const input: QueryCollectionInput = {
+        query,
+        facets,
+        rerank,
+        size,
+        candidateSize,
+        ...readOptions(ref, consistentRead),
+        includeVectors,
+        sort,
+        fields,
+        partitionFilter
+      };
+      const result = await client.collection(collectionName).query(input);
+      return jsonResult("Collection query completed successfully.", result);
+    })
   );
 
   server.registerTool(
@@ -203,34 +190,29 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(1).max(1000).optional(),
-        pageToken: z.string().optional(),
+        size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000). Keep pages small and use fields to leave out large stored fields; every returned document is passed through in full."),
+        pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response; keep the other inputs unchanged between pages."),
         ref: readRefSchema.optional(),
-        filter: z.record(z.string(), z.any()).optional(),
+        filter: z.record(z.string(), z.any()).optional().describe("Filter applied before pagination using the queryString and bool shapes of lambdadb_query_collection, e.g. {queryString: {query: 'category:docs'}}. Vector and ranking queries are not allowed."),
         fields: fieldsSchema.optional(),
-        includeVectors: z.boolean().optional(),
+        includeVectors: includeVectorsSchema,
         partitionFilter: partitionFilterSchema.optional()
       })
     },
-    async ({
+    ({
       collectionName, size, pageToken, ref, filter, fields, includeVectors, partitionFilter
-    }) => {
-      try {
-        const client = createLambdaDBClient(config);
-        const result = await client.collection(collectionName).docs.list({
-          size,
-          pageToken,
-          ref,
-          filter,
-          fields,
-          includeVectors,
-          partitionFilter
-        });
-        return jsonResult("Documents listed successfully.", result);
-      } catch (error) {
-        throw new Error(formatLambdaDBError(error));
-      }
-    }
+    }) => withLambdaDB(config, async client => {
+      const result = await client.collection(collectionName).docs.list({
+        size,
+        pageToken,
+        ref,
+        filter,
+        fields,
+        includeVectors,
+        partitionFilter
+      });
+      return jsonResult("Documents listed successfully.", result);
+    })
   );
 
   server.registerTool(
@@ -244,17 +226,17 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        ids: z.array(z.string().min(1)).min(1).max(1000),
+        ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Use fields to leave out large stored fields; every returned document is passed through in full."),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429."
         ),
-        includeVectors: z.boolean().optional(),
+        includeVectors: includeVectorsSchema,
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
       })
     },
-    async ({
+    ({
       collectionName,
       ids,
       ref,
@@ -262,21 +244,16 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       includeVectors,
       fields,
       partitionFilter
-    }) => {
-      try {
-        const client = createLambdaDBClient(config);
-        const input: FetchDocsInput = {
-          ids,
-          ...readOptions(ref, consistentRead),
-          includeVectors,
-          fields,
-          partitionFilter
-        };
-        const result = await client.collection(collectionName).docs.fetch(input);
-        return jsonResult("Documents fetched successfully.", result);
-      } catch (error) {
-        throw new Error(formatLambdaDBError(error));
-      }
-    }
+    }) => withLambdaDB(config, async client => {
+      const input: FetchDocsInput = {
+        ids,
+        ...readOptions(ref, consistentRead),
+        includeVectors,
+        fields,
+        partitionFilter
+      };
+      const result = await client.collection(collectionName).docs.fetch(input);
+      return jsonResult("Documents fetched successfully.", result);
+    })
   );
 }

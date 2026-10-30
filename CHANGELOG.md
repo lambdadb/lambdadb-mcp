@@ -7,6 +7,28 @@
   OIDC role. A new `mode` job selects the run mode and its Environment (`dev` for
   dev builds, `prod` for release verification and Releases), and the publication
   job runs in it. The runner still fails on a missing or multi-line key.
+- Add read-only Branch/Tag/Alias list tools and write-gated lifecycle tools for
+  creation, deletion and alias retargeting. Preserve source/target restrictions,
+  committed snapshot semantics, SDK metadata and service errors.
+- Add write-gated document partial updates, bulk upsert orchestration, collection
+  setting updates (`null` clears description, tags or retention) and collection
+  deletion. Bulk inputs remain subject to the MCP transport limit; accepted
+  mutations do not establish committed search visibility. Existing tool inputs
+  and defaults remain unchanged; no release is included.
+- Describe every tool parameter for MCP clients, with query, filter, sort, and
+  document shape examples drawn from the LambdaDB docs, and name the follow-up
+  tool in each write description. Mark document upserts and deletes as
+  destructive and creation tools as non-destructive. Move the text analyzer
+  preset list from the `lambdadb_create_collection` description to its
+  `indexConfigs` parameter.
+- Return compact JSON from every tool, flatten SDK validation failures to
+  one `path: message` line per issue with only the matching index type branch,
+  add the list tool to use after a not-found error, name the accepted values in
+  name, tag and sort direction errors, and describe the read and write workflows
+  in the server instructions.
+- Pin the LambdaDB SDK to 0.11.1. Its only runtime change is that `LAMBDADB_DEBUG`
+  enables the SDK debug logger only for `true` or `1`; the server still removes the
+  variable at startup. Tool inputs and outputs are unchanged.
 
 ## [0.2.1] - 2026-10-30
 
