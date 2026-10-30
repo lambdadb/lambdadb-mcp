@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.0] - 2026-10-30
+
 - Pin the LambdaDB SDK to 0.11.0. `lambdadb_query_collection` rerank now accepts
   `cohere` with `rerank-v5.0-pro` or `rerank-v5.0-fast` (criteria omitted or null)
   besides `typesafe` / `jev-1.13.0`; mixed provider/model pairs and Cohere criteria
@@ -45,8 +47,6 @@
   Vector dimensions now require integers from 64 to 4096 and similarity accepts
   only cosine/euclidean; invalid requests and existing out-of-contract collection
   metadata fail SDK validation. Update vector fixtures and native source guidance.
-
-- Synchronize the 0.1.5 release history and start the 0.1.6 development line.
 
 ## [0.1.5] - 2026-10-25
 
