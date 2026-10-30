@@ -262,26 +262,29 @@ a future release candidate.
 
 ## Deployed live smoke gates
 
-| Run mode | Event | Live target | Variable prefix |
-| --- | --- | --- | --- |
-| None | Pull request, manual run | None (no credentials) | None |
-| `dev` | `main` push, committed version tagged on `origin` | Dev environment, then dev publication | `LAMBDADB_DEV_` |
-| `verify` | `main` push, committed `X.Y.Z-rc.N` or `X.Y.Z` not tagged yet | Production, verification only | `LAMBDADB_PROD_` |
-| `release` | Published GitHub Release | Production, then publication | `LAMBDADB_PROD_` |
+| Run mode | Event | Live target | Variable prefix | GitHub Environment |
+| --- | --- | --- | --- | --- |
+| None | Pull request, manual run | None (no credentials) | None | None |
+| `dev` | `main` push, committed version tagged on `origin` | Dev environment, then dev publication | `LAMBDADB_DEV_` | `dev` |
+| `verify` | `main` push, committed `X.Y.Z-rc.N` or `X.Y.Z` not tagged yet | Production, verification only | `LAMBDADB_PROD_` | `prod` |
+| `release` | Published GitHub Release | Production, then publication | `LAMBDADB_PROD_` | `prod` |
 
-`node scripts/version.mjs mode` selects the run mode and its Variable prefix. A
-dev run superseded before preparation (no longer the head of `main`), or a
-rerun of the tagged stable release commit itself, skips the smoke together with
-publication.
+`node scripts/version.mjs mode` selects the run mode, its Variable prefix and
+its GitHub Environment. It runs in the `mode` job, because a job's Environment
+must be known before the job starts; the publication job runs in the selected
+Environment. A dev run superseded before preparation (no longer the head of
+`main`), or a rerun of the tagged stable release commit itself, skips the smoke
+together with publication.
 
 After the exact publication artifact passes its installed-package tests, the
-publication job assumes the environment's AWS role through GitHub OIDC and runs
-`node scripts/run-live-smoke.mjs`. The runner fails on missing configuration,
-reads the project API key from Secrets Manager with the AWS CLI, masks it, and
-passes it only in the environment of `npm run test:live:all`. It never puts the
-key in files, command arguments, artifacts or GitHub Secrets, and loads no
-dotenv file (`LAMBDADB_ENV_FILE=/dev/null`). It sets every opt-in
-(`LAMBDADB_RUN_LIVE_TESTS=1`, `LAMBDADB_RUN_LIVE_RERANK_TESTS=1`,
+publication job runs `node scripts/run-live-smoke.mjs` with the project API key
+from the Environment secret `LAMBDADB_PROJECT_API_KEY` in the smoke step's
+environment. Actions masks the secret in logs. The runner fails before running
+anything when the base URL, project name or key is missing or blank, or when the
+key spans more than one line, and passes the key only in the environment of
+`npm run test:live:all`. It never puts the key in files, command arguments or
+artifacts, and loads no dotenv file (`LAMBDADB_ENV_FILE=/dev/null`). It sets
+every opt-in (`LAMBDADB_RUN_LIVE_TESTS=1`, `LAMBDADB_RUN_LIVE_RERANK_TESTS=1`,
 `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true` and `LAMBDADB_LIVE_CONFIRM_PROJECT` set
 to the project name), and each suite fails rather than skips without them.
 
@@ -299,45 +302,40 @@ and fails the run; it never falls back to the other environment.
 | --- | --- |
 | `LAMBDADB_DEV_BASE_URL` | `https://internal-dev-aws-apne2-v3-c05a2b5d492a.lambdadb.ai` |
 | `LAMBDADB_DEV_PROJECT_NAME` | Dedicated MCP smoke project in `dev-aws-apne2-v3` (`mcp-ci`) |
-| `LAMBDADB_DEV_SMOKE_AWS_ROLE_ARN` | Dev AWS OIDC role ARN (`lambdadb-mcp-smoke`) |
-| `LAMBDADB_DEV_SMOKE_SECRET_ARN` | Exact ARN of the dev project's API key secret |
 | `LAMBDADB_PROD_BASE_URL` | `https://aws-ap-northeast-2-v3.lambdadb.ai` |
 | `LAMBDADB_PROD_PROJECT_NAME` | Dedicated MCP smoke project in `prod-aws-apne2-v3` (`mcp-ci`) |
-| `LAMBDADB_PROD_SMOKE_AWS_ROLE_ARN` | Production AWS OIDC role ARN (`lambdadb-mcp-prod-smoke`) |
-| `LAMBDADB_PROD_SMOKE_SECRET_ARN` | Exact ARN of the production project's API key secret |
 
-Each key is a plain SecretString in `ap-northeast-2`. Each project is dedicated
-to this smoke, where temporary collections may be created and deleted, with a
-`rateLimit` of at least 100 requests per second. Each role trusts audience
-`sts.amazonaws.com` and only these subjects; the dev role:
+Each GitHub Environment holds the secret `LAMBDADB_PROJECT_API_KEY`, set to its
+smoke project's API key. Its deployment policy keeps the key away from other
+branches and tags:
 
-```text
-repo:lambdadb/lambdadb-mcp:ref:refs/heads/main
+| Environment | Deployment branches and tags | Key |
+| --- | --- | --- |
+| `dev` | branch `main` | Dev smoke project (`mcp-ci`) |
+| `prod` | branch `main`, tag `v*` | Production smoke project (`mcp-ci`) |
+
+Each project is dedicated to this smoke, where temporary collections may be
+created and deleted, with a `rateLimit` of at least 100 requests per second.
+Never use an admin key. Rotate a key by issuing a new project key and replacing
+the Environment secret:
+
+```sh
+gh secret set LAMBDADB_PROJECT_API_KEY --env dev   # or --env prod
 ```
 
-The production role (release verification on `main`, Releases on tags):
+A smoke failure caused by a server change not yet deployed to production blocks
+verification and release; record the exact error.
 
-```text
-repo:lambdadb/lambdadb-mcp:ref:refs/heads/main
-repo:lambdadb/lambdadb-mcp:ref:refs/tags/v*
-```
-
-Each role may only call `secretsmanager:GetSecretValue` on its own environment's
-smoke secret (plus `kms:Decrypt` on the exact key if a customer-managed KMS key
-is used). Do not grant the workflow an admin key, project creation, deployment
-or secret write permissions. Provisioning the roles, projects, keys and
-Variables is a separate environment setup step; key rotation updates the secret
-without changing the workflow. A smoke failure caused by a server change not yet
-deployed to production blocks verification and release; record the exact error.
-
-To run the same suite locally against a designated project, use AWS credentials
-that can read its smoke secret. Outside GitHub Actions the runner prints no mask
-command, so the key is never printed:
+To run the same suite locally against the dev smoke project, keep its settings
+outside the repository in `~/.config/lambdadb/smoke/dev/mcp-ci.env` (mode
+`0600`) with `LAMBDADB_BASE_URL`, `LAMBDADB_PROJECT_NAME` and
+`LAMBDADB_PROJECT_API_KEY`, load it into the shell and run the runner. It loads
+no dotenv file, so only the exported variables apply:
 
 ```sh
 npm ci
-AWS_PROFILE=YOUR_PROFILE LAMBDADB_BASE_URL=https://... LAMBDADB_PROJECT_NAME=mcp-ci \
-  LAMBDADB_SMOKE_SECRET_ARN=arn:aws:secretsmanager:... node scripts/run-live-smoke.mjs
+set -a; . ~/.config/lambdadb/smoke/dev/mcp-ci.env; set +a
+node scripts/run-live-smoke.mjs
 ```
 
 With credentials in `.env.local` (including `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`)
@@ -388,13 +386,15 @@ After bootstrap, open the npm package's **Settings → Trusted Publisher**:
 | Organization or user | `lambdadb` |
 | Repository | `lambdadb-mcp` |
 | Workflow filename | `publish.yaml` (filename only) |
-| Environment | Empty; the job declares no GitHub Environment |
+| Environment | Empty; npm accepts the publication job from either GitHub Environment |
 | Allowed actions | Enable direct `npm publish` |
 
 New trust configurations may default to staged publishing only; that does not
-authorize this workflow's direct publish. If an Environment is added later,
-configure its exact name in npm too. Restrict traditional publishing tokens in
-package settings after setup. Saving trust settings does not validate OIDC;
+authorize this workflow's direct publish. The publication job runs in the
+`dev` or `prod` GitHub Environment that holds the smoke key. If an Environment
+requirement is added to the npm Trusted Publisher, it must match the
+Environment the job runs in; coordinate both changes. Restrict traditional
+publishing tokens in package settings after setup. Saving trust settings does not validate OIDC;
 only an authorized successful publication does.
 
 The workflow uses a GitHub-hosted runner, Node 24, npm >=11.5.1,

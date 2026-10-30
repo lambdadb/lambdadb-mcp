@@ -107,7 +107,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const version = readVersion(process.cwd());
       const mode = runMode({ event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF, version, tagExists: remoteTagExists });
       const prefix = smokePrefix(mode);
-      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\nsmoke_prefix=${prefix}\n`);
+      // The GitHub Environment holding the smoke key matches the Variable prefix.
+      const environment = mode === 'dev' ? 'dev' : 'prod';
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${mode}\nsmoke_prefix=${prefix}\nenvironment=${environment}\n`);
       const reason = { dev: `v${version} is tagged on origin`, verify: `v${version} is not tagged yet`, release: 'GitHub Release' }[mode];
       console.log(`Committed version ${version}; run mode ${mode} (${reason}); live smoke ${prefix}*`);
     } else {
