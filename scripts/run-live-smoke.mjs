@@ -1,32 +1,20 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const REQUIRED = ['LAMBDADB_BASE_URL', 'LAMBDADB_PROJECT_NAME', 'LAMBDADB_SMOKE_SECRET_ARN'];
+const REQUIRED = ['LAMBDADB_BASE_URL', 'LAMBDADB_PROJECT_NAME', 'LAMBDADB_PROJECT_API_KEY'];
 
 /**
- * Read the dedicated smoke project's API key from Secrets Manager and run every live suite with it.
- * The key is masked in GitHub Actions and exists only in the test child process environment.
+ * Run every live suite against the dedicated smoke project. In GitHub Actions the project API key
+ * comes from the selected GitHub Environment's secret, which Actions masks in logs.
  */
-export function runLiveSmoke(env, execute = execFileSync, spawn = spawnSync, mask = console.log) {
+export function runLiveSmoke(env, spawn = spawnSync) {
   for (const name of REQUIRED) {
     if (!env[name]?.trim()) throw new Error(`Missing smoke configuration: ${name}`);
   }
-  let key;
-  try {
-    key = execute('aws', ['secretsmanager', 'get-secret-value', '--region', 'ap-northeast-2',
-      '--secret-id', env.LAMBDADB_SMOKE_SECRET_ARN.trim(), '--query', 'SecretString', '--output', 'text'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env }).trim();
-  } catch {
-    // Do not include AWS command output or credentials in errors.
-    throw new Error('Unable to read the dedicated smoke project key from Secrets Manager');
-  }
-  if (!key || key === 'None' || /[\r\n]/.test(key)) throw new Error('Expected a single project API key in SecretString');
-  // A workflow command outside GitHub Actions would print the key instead of masking it.
-  if (env.GITHUB_ACTIONS === 'true') {
-    mask(`::add-mask::${key.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')}`);
-  }
-  // Keep the key out of files, command arguments and the rest of the publication job. Every
-  // opt-in is set so no suite can skip; the empty env file keeps local dotenv files out of the run.
+  const key = env.LAMBDADB_PROJECT_API_KEY.trim();
+  if (/[\r\n]/.test(key)) throw new Error('Expected a single project API key');
+  // Keep the key out of files and command arguments. Every opt-in is set so no suite can skip;
+  // the empty env file keeps local dotenv files out of the run.
   const result = spawn('npm', ['run', 'test:live:all'], {
     stdio: 'inherit',
     env: {

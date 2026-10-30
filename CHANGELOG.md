@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Read the deployed live smoke's project API key from the GitHub Environment
+  secret `LAMBDADB_PROJECT_API_KEY` instead of Secrets Manager through an AWS
+  OIDC role. A new `mode` job selects the run mode and its Environment (`dev` for
+  dev builds, `prod` for release verification and Releases), and the publication
+  job runs in it. The runner still fails on a missing or multi-line key.
+
 ## [0.2.1] - 2026-10-30
 
 - Ignore `LAMBDADB_DEBUG`. The LambdaDB SDK's debug logger prints every request,

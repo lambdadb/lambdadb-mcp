@@ -42,16 +42,45 @@ jobs:
           npm run check
           npm run test:package
 
-  publish:
+  # A job's GitHub Environment must be known before the job starts, so the run mode is selected
+  # here and the publication job runs in the Environment it names.
+  mode:
     needs: validate
     if: >-
       github.repository == 'lambdadb/lambdadb-mcp' &&
       (github.event_name == 'release' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      smoke_prefix: ${{ steps.mode.outputs.smoke_prefix }}
+      environment: ${{ steps.mode.outputs.environment }}
+    steps:
+      - name: Check out verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Select the run mode
+        id: mode
+        run: node scripts/version.mjs mode
+
+  # The GitHub Environment holds the smoke project API key. Its deployment policy admits only
+  # main (dev, prod) and v* tags (prod), so other refs cannot read the key.
+  publish:
+    needs: mode
+    runs-on: ubuntu-latest
+    environment: ${{ needs.mode.outputs.environment }}
     timeout-minutes: 60
     permissions:
       contents: read
+      # npm Trusted Publishing and provenance.
       id-token: write
     concurrency:
       # Never interrupt a registry write. New pending dev jobs replace older ones.
@@ -73,18 +102,15 @@ jobs:
       - name: Require an OIDC-capable npm
         run: |
           node -e 'const {execFileSync}=require("node:child_process"); const v=execFileSync("npm",["--version"],{encoding:"utf8"}).trim().split(".").map(Number); if(v[0]<11 || (v[0]===11 && (v[1]<5 || (v[1]===5 && v[2]<1)))) throw Error("npm >=11.5.1 required");'
-      - name: Select the run mode
-        id: mode
-        run: node scripts/version.mjs mode
       - name: Prepare deterministic development version
-        if: steps.mode.outputs.mode == 'dev'
+        if: needs.mode.outputs.mode == 'dev'
         id: dev
         run: node scripts/dev-release.mjs prepare
       - name: Verify committed release metadata and main ancestry without publication
-        if: steps.mode.outputs.mode == 'verify'
+        if: needs.mode.outputs.mode == 'verify'
         run: node scripts/release.mjs verify
       - name: Verify explicit release metadata and main ancestry
-        if: steps.mode.outputs.mode == 'release'
+        if: needs.mode.outputs.mode == 'release'
         id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -92,7 +118,7 @@ jobs:
         run: |
           node scripts/release.mjs prepare
       - name: Pack once and test the exact publication artifact
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        if: needs.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         id: package
         shell: bash
         run: |
@@ -103,32 +129,26 @@ jobs:
           npm run test:package -- "$MCP_TARBALL"
           echo "tarball=$MCP_TARBALL" >> "$GITHUB_OUTPUT"
       # Dev builds run every live suite against the dev environment; release verification and
-      # RC/stable releases against production. A missing Variable stays empty and fails the run.
-      - name: Authenticate smoke tests to AWS
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars[format('{0}SMOKE_AWS_ROLE_ARN', steps.mode.outputs.smoke_prefix)] }}
-          aws-region: ap-northeast-2
-          role-session-name: mcp-smoke-${{ github.run_id }}
+      # RC/stable releases against production. A missing Variable or Environment secret stays
+      # empty and fails the run.
       - name: Run deployed live smoke tests
-        if: steps.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
+        if: needs.mode.outputs.mode != 'dev' || steps.dev.outputs.ready == 'true'
         env:
-          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', steps.mode.outputs.smoke_prefix)] }}
-          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', steps.mode.outputs.smoke_prefix)] }}
-          LAMBDADB_SMOKE_SECRET_ARN: ${{ vars[format('{0}SMOKE_SECRET_ARN', steps.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_BASE_URL: ${{ vars[format('{0}BASE_URL', needs.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_NAME: ${{ vars[format('{0}PROJECT_NAME', needs.mode.outputs.smoke_prefix)] }}
+          LAMBDADB_PROJECT_API_KEY: ${{ secrets.LAMBDADB_PROJECT_API_KEY }}
         run: |
           echo "Live smoke target: $LAMBDADB_BASE_URL"
           node scripts/run-live-smoke.mjs
       - name: Publish development version and verify registry state
         if: >-
-          steps.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
+          needs.mode.outputs.mode == 'dev' && steps.dev.outputs.ready == 'true' &&
           vars.NPM_DEV_PUBLISH_ENABLED == 'true'
         env:
           MCP_TARBALL: ${{ steps.package.outputs.tarball }}
         run: node scripts/dev-release.mjs publish
       - name: Publish explicit release using npm Trusted Publishing
-        if: steps.mode.outputs.mode == 'release'
+        if: needs.mode.outputs.mode == 'release'
         env:
           MCP_TARBALL: ${{ steps.package.outputs.tarball }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

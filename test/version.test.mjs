@@ -108,17 +108,17 @@ test('the version CLI selects the run mode from tags on origin and reports it to
   };
   assert.equal(run(['get']).stdout, '0.1.5\n');
   // Untagged: a merged release pull request awaiting its tag is verified against production.
-  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\n');
+  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\nenvironment=prod\n');
   // Only the tag on origin counts; a local tag alone does not make a development commit.
   git('tag', 'v0.1.5');
   assert.equal(remoteTagExists('0.1.5', { cwd: f.root }), false);
-  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\n');
+  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\nenvironment=prod\n');
   git('push', '-q', 'origin', 'v0.1.5');
   assert.equal(remoteTagExists('0.1.5', { cwd: f.root }), true);
-  assert.equal(mode(), 'mode=dev\nsmoke_prefix=LAMBDADB_DEV_\n');
+  assert.equal(mode(), 'mode=dev\nsmoke_prefix=LAMBDADB_DEV_\nenvironment=dev\n');
   assert.notEqual(run(['mode'], { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/develop' }).status, 0);
   assert.equal(run(['set', '0.2.0-rc.1']).stdout, '0.2.0-rc.1\n');
-  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\n');
+  assert.equal(mode(), 'mode=verify\nsmoke_prefix=LAMBDADB_PROD_\nenvironment=prod\n');
   for (const args of [[], ['set'], ['set', '0.2.0-dev.7'], ['set', '0.2.1-dev.0'], ['next-dev', '0.2.0'], ['unknown']]) {
     assert.notEqual(run(args).status, 0);
   }
