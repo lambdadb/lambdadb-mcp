@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { getEnvConfig } from "../../dist/config/env.js";
 import { createLambdaDBClient } from "../../dist/lambdadb/client.js";
 import { createServer } from "../../dist/server/createServer.js";
+import { rerankQuery } from "./rerank-fallback.mjs";
 
 async function eventually(operation, label, timeoutMs = 300_000) {
   const started = Date.now();
@@ -16,30 +17,6 @@ async function eventually(operation, label, timeoutMs = 300_000) {
     await delay(2_000);
   }
   console.info(`[live:rerank] ${label}: PASS`);
-}
-
-// Provider timeouts, rate limits and outages are transient under shared load; with
-// onFailure "returnOriginal" they arrive as a fallback naming the reason. Retry only
-// those, a bounded number of times. Credential, invalid-response and any other
-// fallback fails at once, and a fallback never counts as applied reranking.
-const transientRerankReasons = new Set(["timeout", "rateLimit", "unavailable"]);
-const rerankAttempts = 3;
-
-async function rerankQuery(call, args, label) {
-  for (let attempt = 1; ; attempt++) {
-    const result = await call("query_collection", { ...args, rerank: { ...args.rerank, onFailure: "returnOriginal" } });
-    if (result.rerank?.status !== "fallback") return result;
-    const { reason } = result.rerank;
-    // Documented fallback shape: retrieval order without rerank scores or criteria.
-    assert.equal(result.rerank.scoredCount, 0, `${label} fallback must not report scores`);
-    assert.equal(result.rerank.criteriaVersion, undefined, `${label} fallback must omit criteriaVersion`);
-    assert.ok(result.docs.length <= args.size);
-    assert.ok(result.docs.every(hit => hit.retrievalScore === undefined), `${label} fallback must omit retrievalScore`);
-    assert.ok(transientRerankReasons.has(reason) && attempt < rerankAttempts,
-      `${label} fell back with reason ${reason} on attempt ${attempt}/${rerankAttempts}`);
-    console.info(`[live:rerank] ${label} fell back with reason ${reason}; retrying (${attempt + 1}/${rerankAttempts})`);
-    await delay(attempt * 5_000);
-  }
 }
 
 // Separate opt-in: real inference can incur cost and requires a native reranking model enabled by LambdaDB.
@@ -155,30 +132,30 @@ test("live MCP native reranking, custom criteria, Cohere models, empty results, 
     const retrieval = new Map(baseline.docs.map(hit => [hit.doc.id, hit.score]));
     console.info("[live:rerank] Omitted/null retrieval behavior: PASS");
 
-    const defaults = await call("query_collection", { ...input, size: 1, rerank });
+    const defaults = await rerankQuery(call, { ...input, size: 1, rerank }, "Default criteria");
     assertApplied(defaults, "default-relevance-v1", 1, retrieval);
     assert.equal(docsUrl, undefined, "Projected result must be inline");
     console.info("[live:rerank] Default criteria, final size and inline envelopes: PASS");
 
     for (const model of ["rerank-v5.0-fast", "rerank-v5.0-pro"]) {
       const cohere = { ...rerank, provider: "cohere", model };
-      assertApplied(await rerankQuery(call, { ...input, size: 1, rerank: cohere }, `Cohere ${model}`),
+      assertApplied(await rerankQuery(call, { ...input, size: 1, rerank: cohere }, "Cohere"),
         "cohere-relevance-v1", 1, retrieval, cohere);
       assert.equal(docsUrl, undefined, "Projected result must be inline");
     }
     console.info("[live:rerank] Cohere rerank-v5.0-fast/pro without criteria: PASS");
 
-    const custom = await call("query_collection", { query, size: 2, rerank: { ...rerank, criteria: [
+    const custom = await rerankQuery(call, { query, size: 2, rerank: { ...rerank, criteria: [
       "Does not explain restoring a collection.",
       "Explains how to restore a previous collection version."
-    ] } });
+    ] } }, "Custom criteria");
     assertApplied(custom, "custom", 2, retrieval);
     assert.ok(docsUrl !== undefined && downloadedDocs !== undefined, "Large projection must actually download");
     for (const { doc } of custom.docs) assert.equal(digest(doc.payload), digest(payload));
     assert.deepEqual(custom.docs.map(hit => hit.doc.id).sort(), ids);
     console.info("[live:rerank] Custom criteria, docsUrl envelopes, payload integrity and credential isolation: PASS");
 
-    const empty = await call("query_collection", { ...input, query: { queryString: { query: "title:nonexistenttoken" } }, rerank });
+    const empty = await rerankQuery(call, { ...input, query: { queryString: { query: "title:nonexistenttoken" } }, rerank }, "Empty candidates");
     assert.deepEqual(empty.docs, []);
     assert.equal(empty.total, 0);
     assert.equal(empty.maxScore, undefined);
