@@ -109,7 +109,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         size: z.number().int().min(0).max(1000).optional()
-          .describe("Documents to return (1–1000), or 0 with nonempty facets. Keep exploration small (20 or fewer) and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
+          .describe("Documents to return (1–1000), or 0 with nonempty facets. Keep exploration small (20 or fewer) and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents, and documents larger than the limit are listed with per-field sizes so you can narrow fields."),
         // Preserve SDK/server validation and error classification for free-form queries.
         candidateSize: z.number().int().optional().describe(
           "Bayesian without rerank requires 1 <= size <= candidateSize <= 1000 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
@@ -191,7 +191,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000). Keep pages small and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
+        size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000). Keep pages small and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents, and documents larger than the limit are listed with per-field sizes so you can narrow fields."),
         pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response; keep the other inputs unchanged between pages."),
         ref: readRefSchema.optional(),
         filter: z.record(z.string(), z.any()).optional().describe("Filter applied before pagination using the queryString and bool shapes of lambdadb_query_collection, e.g. {queryString: {query: 'category:docs'}}. Vector and ranking queries are not allowed."),
@@ -227,7 +227,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
+        ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents, and documents larger than the limit are listed with per-field sizes so you can narrow fields."),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429."

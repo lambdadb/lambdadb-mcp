@@ -122,7 +122,14 @@ results so a broad request cannot flood the client's context. When a result
 exceeds the cap, the server keeps whole documents from the start of `docs`
 until the budget is used, reports `truncated: {returnedDocs, droppedDocs,
 limitBytes, hint}` beside the server's own `total`, and says so in the result
-title. The default is 65536 bytes; `0` disables the cap for exports. Tool
+title. A truncated list page omits the top-level `nextPageToken`, because that
+token continues after the dropped documents; it is kept as
+`truncated.nextPageTokenAfterDropped`, and the hint says to re-request the same
+page with a smaller `size` or narrower `fields` first. A document that is larger
+than the cap on its own is skipped and listed in `truncated.oversized` with its
+`id`, total `bytes`, and `fieldBytes` per field (at most ten listed, with the full
+count in `oversizedDocs`), so the caller can exclude the large fields with `fields`
+or raise the cap to read it. The default is 65536 bytes; `0` disables the cap for exports. Tool
 results are compact JSON, and SDK validation failures are reported as one
 `path: message` line per issue.
 

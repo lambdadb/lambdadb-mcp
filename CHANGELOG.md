@@ -23,7 +23,9 @@
   `indexConfigs` parameter.
 - Return compact JSON from every tool, cap query/list/fetch results at
   `LAMBDADB_MCP_MAX_RESULT_BYTES` (default 65536, `0` disables) by keeping whole
-  documents and reporting `truncated` counts, flatten SDK validation failures to
+  documents and reporting `truncated` counts (a truncated list page moves its
+  `nextPageToken` into the marker, and documents larger than the cap are listed
+  with per-field byte sizes), flatten SDK validation failures to
   one `path: message` line per issue with only the matching index type branch,
   add the list tool to use after a not-found error, name the accepted values in
   name, tag and sort direction errors, and describe the read and write workflows
