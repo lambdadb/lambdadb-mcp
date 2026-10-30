@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-10-31
+
 - Read the deployed live smoke's project API key from the GitHub Environment
   secret `LAMBDADB_PROJECT_API_KEY` instead of Secrets Manager through an AWS
   OIDC role. A new `mode` job selects the run mode and its Environment (`dev` for
@@ -14,7 +16,7 @@
   setting updates (`null` clears description, tags or retention) and collection
   deletion. Bulk inputs remain subject to the MCP transport limit; accepted
   mutations do not establish committed search visibility. Existing tool inputs
-  and defaults remain unchanged; no release is included.
+  and defaults remain unchanged.
 - Describe every tool parameter for MCP clients, with query, filter, sort, and
   document shape examples drawn from the LambdaDB docs, and name the follow-up
   tool in each write description. Mark document upserts and deletes as
