@@ -18,6 +18,30 @@ async function eventually(operation, label, timeoutMs = 300_000) {
   console.info(`[live:rerank] ${label}: PASS`);
 }
 
+// Provider timeouts, rate limits and outages are transient under shared load; with
+// onFailure "returnOriginal" they arrive as a fallback naming the reason. Retry only
+// those, a bounded number of times. Credential, invalid-response and any other
+// fallback fails at once, and a fallback never counts as applied reranking.
+const transientRerankReasons = new Set(["timeout", "rateLimit", "unavailable"]);
+const rerankAttempts = 3;
+
+async function rerankQuery(call, args, label) {
+  for (let attempt = 1; ; attempt++) {
+    const result = await call("query_collection", { ...args, rerank: { ...args.rerank, onFailure: "returnOriginal" } });
+    if (result.rerank?.status !== "fallback") return result;
+    const { reason } = result.rerank;
+    // Documented fallback shape: retrieval order without rerank scores or criteria.
+    assert.equal(result.rerank.scoredCount, 0, `${label} fallback must not report scores`);
+    assert.equal(result.rerank.criteriaVersion, undefined, `${label} fallback must omit criteriaVersion`);
+    assert.ok(result.docs.length <= args.size);
+    assert.ok(result.docs.every(hit => hit.retrievalScore === undefined), `${label} fallback must omit retrievalScore`);
+    assert.ok(transientRerankReasons.has(reason) && attempt < rerankAttempts,
+      `${label} fell back with reason ${reason} on attempt ${attempt}/${rerankAttempts}`);
+    console.info(`[live:rerank] ${label} fell back with reason ${reason}; retrying (${attempt + 1}/${rerankAttempts})`);
+    await delay(attempt * 5_000);
+  }
+}
+
 // Separate opt-in: real inference can incur cost and requires a native reranking model enabled by LambdaDB.
 test("live MCP native reranking, custom criteria, Cohere models, empty results, downloads and cleanup", { timeout: 900_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
@@ -138,7 +162,8 @@ test("live MCP native reranking, custom criteria, Cohere models, empty results, 
 
     for (const model of ["rerank-v5.0-fast", "rerank-v5.0-pro"]) {
       const cohere = { ...rerank, provider: "cohere", model };
-      assertApplied(await call("query_collection", { ...input, size: 1, rerank: cohere }), "cohere-relevance-v1", 1, retrieval, cohere);
+      assertApplied(await rerankQuery(call, { ...input, size: 1, rerank: cohere }, `Cohere ${model}`),
+        "cohere-relevance-v1", 1, retrieval, cohere);
       assert.equal(docsUrl, undefined, "Projected result must be inline");
     }
     console.info("[live:rerank] Cohere rerank-v5.0-fast/pro without criteria: PASS");
