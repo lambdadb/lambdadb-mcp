@@ -98,7 +98,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.match(read.client.getInstructions(), /Only read tools are enabled/);
   assert.ok(!read.client.getInstructions().includes("test-secret"));
   const tools = (await read.client.listTools()).tools;
-  assert.equal(tools.length, 5);
+  assert.equal(tools.length, 8);
   assert.ok(tools.every((tool) => tool.annotations.readOnlyHint === true));
   assert.equal((await read.call("create_collection", { collectionName: "items", indexConfigs: collection.indexConfigs })).isError, true);
   assert.equal(read.requests.length, 0);
@@ -106,7 +106,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.match(write.client.getInstructions(), /Write tools are enabled/);
   assert.ok(!write.client.getInstructions().includes("test-secret"));
   const enabled = (await write.client.listTools()).tools;
-  assert.equal(enabled.length, 8);
+  assert.equal(enabled.length, 22);
   const create = enabled.find((tool) => tool.name === "lambdadb_create_collection");
   assert.ok(create.inputSchema.required.includes("indexConfigs"));
   const list = enabled.find((tool) => tool.name === "lambdadb_list_docs");
@@ -117,7 +117,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
 test("tool input schemas use object roots without Bedrock-rejected composition", async (t) => {
   const h = await harness(t, { write: true });
   const tools = (await h.client.listTools()).tools;
-  assert.equal(tools.length, 8);
+  assert.equal(tools.length, 22);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", tool.name);
     for (const keyword of ["allOf", "anyOf", "oneOf"]) {
@@ -185,7 +185,8 @@ test("all 49 analyzers reach collection creation without altering analyzer lists
   const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection").inputSchema;
   const validate = new AjvJsonSchemaValidator().getValidator(schema);
   assert.equal(analyzers.length, 49);
-  for (const name of analyzers) assert.ok((await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection").description.includes(name));
+  const createTool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection");
+  for (const name of analyzers) assert.ok(createTool.inputSchema.properties.indexConfigs.description.includes(name));
   for (const names of [undefined, ...analyzers.map(name => [name]), analyzers, [], ["chinese", "chinese"]]) {
     const input = { collectionName: "items", indexConfigs: { title: { type: "text", ...(names === undefined ? {} : { analyzers: names }) } } };
     assert.equal(validate(input).valid, true);
@@ -456,7 +457,7 @@ test("SDK authentication failures return MCP tool errors and leave the server us
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /denied|unauthorized|authentication/i);
   assert.ok(!JSON.stringify(result).includes("test-secret"));
-  assert.equal((await h.client.listTools()).tools.length, 5);
+  assert.equal((await h.client.listTools()).tools.length, 8);
 });
 
 const rerank = { provider: "typesafe", model: "jev-1.13.0", queryText: "  Restore a collection  ", fields: ["title", "metadata.body"] };
@@ -763,4 +764,177 @@ test("native embedding sources and Cohere configs reach HTTP unchanged; stored m
     assert.equal(result.isError, true, JSON.stringify(embedding));
   }
   assert.equal(h.requests.length, accepted, "Invalid embedding sources must fail before HTTP");
+});
+
+const branchFixture = {
+  name: "candidate", parentBranch: { branchId: "branch-main", name: "main" },
+  headSnapshot: { snapshotId: "snapshot-one", snapshotCommittedAt: timestamp },
+  parentSnapshot: { snapshotId: "snapshot-one", snapshotCommittedAt: timestamp }, createdAt: timestamp
+};
+const tagFixture = { name: "release", snapshotId: "snapshot-one", snapshotCommittedAt: timestamp, createdAt: timestamp };
+const aliasFixture = {
+  aliasId: "alias-one", aliasName: "serving", targetKind: "TAG", targetName: "release",
+  targetId: "tag-one", aliasRevision: 2, dangling: false, createdAt: timestamp
+};
+
+test("read-only connections expose ref discovery and reject every mutation", async t => {
+  const h = await harness(t, { respond: req => ({ body:
+    req.url.pathname.endsWith("/branches") ? { branches: [branchFixture] } :
+    req.url.pathname.endsWith("/tags") ? { tags: [tagFixture] } : { aliases: [aliasFixture] }
+  }) });
+  for (const [plural, fixture] of [["branches", branchFixture], ["tags", tagFixture], ["aliases", aliasFixture]]) {
+    const result = data(await h.call(`list_${plural}`, { collectionName: "items" }));
+    assert.equal(result[plural][0].createdAt, new Date(timestamp).toISOString());
+    assert.equal(result[plural][0].name ?? result[plural][0].aliasName, fixture.name ?? fixture.aliasName);
+    const request = h.requests.at(-1);
+    assert.equal(request.method, "GET");
+    assert.equal(request.url.pathname, `/projects/test/collections/items/${plural}`);
+  }
+  const write = await harness(t, { write: true });
+  const reads = new Set((await h.client.listTools()).tools.map(tool => tool.name));
+  for (const tool of (await write.client.listTools()).tools.filter(tool => !reads.has(tool.name))) {
+    const rejected = await h.client.callTool({ name: tool.name, arguments: {} });
+    assert.equal(rejected.isError, true, tool.name);
+    assert.match(rejected.content[0].text, /not found/i, tool.name);
+  }
+  assert.equal(h.requests.length, 3);
+});
+
+test("version lifecycle tools preserve source, target, paths and snapshot metadata", async t => {
+  const h = await harness(t, { write: true, respond: req => {
+    if (req.method === "DELETE") return { body: { message: "Deleted" } };
+    const key = req.url.pathname.endsWith("/branches") ? "branch" : req.url.pathname.endsWith("/tags") ? "tag" : "alias";
+    return { status: req.method === "POST" ? 201 : 200, body: {
+      [key]: key === "branch" ? branchFixture : key === "tag" ? tagFixture : aliasFixture
+    } };
+  } });
+  const cases = [
+    ["create_branch", { branchName: "candidate" }, "POST", "/branches"],
+    ["create_branch", { branchName: "candidate", source: { kind: "branch", name: "main", asOf: timestamp } }, "POST", "/branches"],
+    ["create_tag", { tagName: "release" }, "POST", "/tags"],
+    ["create_tag", { tagName: "release", source: { kind: "branch", name: "candidate", asOf: timestamp } }, "POST", "/tags"],
+    ["create_tag", { tagName: "release", source: { kind: "tag", name: "previous" } }, "POST", "/tags"],
+    ["create_alias", { aliasName: "serving", target: { kind: "branch", name: "candidate" } }, "POST", "/aliases"],
+    ["retarget_alias", { aliasName: "serving", target: { kind: "tag", name: "release" } }, "PATCH", "/aliases/serving"],
+    ["delete_branch", { branchName: "candidate" }, "DELETE", "/branches/candidate"],
+    ["delete_tag", { tagName: "release" }, "DELETE", "/tags/release"],
+    ["delete_alias", { aliasName: "serving" }, "DELETE", "/aliases/serving"]
+  ];
+  for (const [tool, args, method, path] of cases) {
+    const result = data(await h.call(tool, { collectionName: "items", ...args }));
+    const request = h.requests.at(-1);
+    assert.equal(request.method, method);
+    assert.equal(request.url.pathname, `/projects/test/collections/items${path}`);
+    assert.deepEqual(request.body, method === "DELETE" ? undefined : method === "PATCH" ? { target: args.target } : args);
+    if (result.branch) {
+      assert.equal(result.branch.headSnapshot.snapshotId, "snapshot-one");
+      assert.equal(result.branch.parentSnapshot.snapshotCommittedAt, new Date(timestamp).toISOString());
+      assert.deepEqual(result.branch.parentBranch, branchFixture.parentBranch);
+    }
+    if (result.tag) assert.equal(result.tag.snapshotCommittedAt, new Date(timestamp).toISOString());
+    if (result.alias) assert.equal(result.alias.aliasRevision, 2);
+  }
+});
+
+test("invalid lifecycle selectors fail before HTTP and cannot fall back to main", async t => {
+  const h = await harness(t, { write: true });
+  const cases = [
+    ["create_branch", { branchName: "new", source: { kind: "tag", name: "release" } }],
+    ["create_branch", { branchName: "new", source: { kind: "branch", name: "main", asOf: "yesterday" } }],
+    ["create_branch", { branchName: "new", source: { kind: "branch", name: "main", asOf: 1.5 } }],
+    ["create_tag", { tagName: "new", source: { kind: "alias", name: "serving" } }],
+    ["create_tag", { tagName: "new", source: { kind: "tag", name: "release", asOf: timestamp } }],
+    ["create_alias", { aliasName: "new", target: { kind: "alias", name: "serving" } }],
+    ["retarget_alias", { aliasName: "serving", target: { kind: "branch", name: "main", asOf: timestamp } }],
+    ["delete_branch", { branchName: "../main" }],
+    ["delete_tag", { tagName: "release", ref: { kind: "branch", name: "main" } }],
+    ["list_aliases", { branch: "main" }]
+  ];
+  for (const [tool, args] of cases) {
+    assert.equal((await h.call(tool, { collectionName: "items", ...args })).isError, true, tool);
+  }
+  assert.equal(h.requests.length, 0);
+});
+
+test("collection settings and document patches retain explicit payloads; collection deletion is distinct", async t => {
+  const h = await harness(t, { write: true, respond: req => req.method === "PATCH"
+    ? { body: { collection } } : { status: req.method === "POST" ? 202 : 200, body: { message: "Accepted" } } });
+  const changes = { description: "", tags: {}, snapshotRetentionInDays: 7, indexConfigs: { extra: { type: "keyword" } } };
+  data(await h.call("update_collection", { collectionName: "items", ...changes }));
+  assert.equal(h.requests[0].method, "PATCH");
+  assert.deepEqual(h.requests[0].body, changes);
+  const cleared = { description: "Kept", tags: null, snapshotRetentionInDays: null };
+  data(await h.call("update_collection", { collectionName: "items", ...cleared }));
+  assert.deepEqual(h.requests[1].body, cleared);
+  for (const branch of [undefined, "candidate"]) {
+    const patch = { docs: [{ id: "one", nested: { value: "changed" }, values: [] }], ...(branch ? { branch } : {}) };
+    const result = await h.call("update_docs", { collectionName: "items", ...patch });
+    data(result);
+    assert.match(result.content[0].text, /accepted; committed search visibility has not been verified/);
+    assert.equal(h.requests.at(-1).method, "POST");
+    assert.equal(h.requests.at(-1).url.pathname, "/projects/test/collections/items/docs/update");
+    assert.deepEqual(h.requests.at(-1).body, patch);
+  }
+  data(await h.call("delete_collection", { collectionName: "items" }));
+  assert.equal(h.requests.at(-1).method, "DELETE");
+  assert.equal(h.requests.at(-1).url.pathname, "/projects/test/collections/items");
+  const count = h.requests.length;
+  for (const args of [{}, { indexConfigs: {} }, { snapshotRetentionInDays: 0 }, { partitionConfig: {} },
+    { tags: null, snapshotRetentionInDays: null }]) {
+    assert.equal((await h.call("update_collection", { collectionName: "items", ...args })).isError, true);
+  }
+  assert.equal((await h.call("update_docs", { collectionName: "items", docs: [{ id: "one" }], ref: { kind: "tag", name: "release" } })).isError, true);
+  assert.equal((await h.call("update_docs", { collectionName: "items", docs: [{ title: "no id" }] })).isError, true);
+  assert.equal((await h.call("create_branch", { collectionName: "items", branchName: "candidate", source: { kind: "branch", name: "main", asOf: 1_789_600_000 } })).isError, true);
+  assert.equal(h.requests.length, count);
+});
+
+test("catalog conflicts and missing documents remain tool errors without fallback writes", async t => {
+  const h = await harness(t, { write: true, respond: req => ({ status: req.url.pathname.endsWith("/docs/update") ? 404 : 409,
+    body: { message: req.url.pathname.endsWith("/docs/update") ? "Document not found" : "Target is still referenced" } }) });
+  for (const [tool, args, message] of [
+    ["delete_branch", { branchName: "candidate" }, "Target is still referenced"],
+    ["delete_tag", { tagName: "release" }, "Target is still referenced"],
+    ["retarget_alias", { aliasName: "serving", target: { kind: "tag", name: "release" } }, "Target is still referenced"],
+    ["update_docs", { docs: [{ id: "missing", value: 1 }] }, "Document not found"]
+  ]) {
+    const count = h.requests.length;
+    const result = await h.call(tool, { collectionName: "items", ...args });
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes(message));
+    assert.equal(h.requests.length, count + 1);
+  }
+});
+
+test("bulk workflow forwards signed headers without credentials and finalizes only successful uploads", async t => {
+  for (const failure of [false, true]) {
+    const h = await harness(t, { write: true, respond: req => {
+      if (req.method === "GET") return { body: {
+        url: `${req.url.origin}/upload`, type: "application/json", httpMethod: "PUT", objectKey: "upload-one",
+        sizeLimitBytes: 200 * 1024 * 1024, headers: { "if-none-match": "*" }
+      } };
+      if (req.method === "PUT") return { status: failure ? 412 : 200, body: { message: failure ? "Already uploaded" : "Uploaded" } };
+      return { status: 202, body: { message: "Accepted" } };
+    } });
+    const documents = [{ id: "one", title: "Bulk memory", embedding: [0.5, 0.5] }];
+    const result = await h.call("bulk_upsert_docs", { collectionName: "items", docs: documents, branch: "candidate" });
+    assert.equal(h.requests[0].url.pathname, "/projects/test/collections/items/docs/bulk-upsert");
+    assert.equal(h.requests[0].url.searchParams.get("branch"), "candidate");
+    assert.equal(h.requests[0].headers["x-api-key"], "test-secret");
+    assert.equal(h.requests[1].method, "PUT");
+    assert.equal(h.requests[1].headers["if-none-match"], "*");
+    assert.equal(h.requests[1].headers["content-type"], "application/json");
+    assert.equal(h.requests[1].headers["x-api-key"], undefined);
+    assert.deepEqual(h.requests[1].body, { docs: documents });
+    if (failure) {
+      assert.equal(result.isError, true);
+      assert.equal(h.requests.length, 2, "Do not retry the upload or finalize a failed upload");
+    } else {
+      data(result);
+      assert.match(result.content[0].text, /accepted; committed search visibility has not been verified/);
+      assert.equal(h.requests.length, 3);
+      assert.equal(h.requests[2].method, "POST");
+      assert.deepEqual(h.requests[2].body, { objectKey: "upload-one", type: "application/json", branch: "candidate" });
+    }
+  }
 });

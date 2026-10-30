@@ -39,6 +39,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
   const client = new Client({ name: "mcp-live-smoke", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   let created = false;
+  let deleted = false;
   let trace = [];
   let docsUrl;
   let downloadCount = 0;
@@ -99,7 +100,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
   try {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
-    assert.equal((await client.listTools()).tools.length, 8);
+    assert.equal((await client.listTools()).tools.length, 22);
     await call("list_collections", { size: 1 });
     console.info("[live] Project List and write opt-in: PASS");
     const made = await scoped("create_collection", {
@@ -198,9 +199,12 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     await scoped("query_collection", { ...query, fields, sort: [{ marker: "ASC" }] });
     console.info("[live] Pagination, queryString filter, uppercase sort: PASS");
 
-    await collection.branches.create({ branchName: "candidate" });
-    await collection.tags.create({ tagName: "release" });
-    await collection.aliases.create({ aliasName: "current", target: { kind: "tag", name: "release" } });
+    await scoped("create_branch", { branchName: "candidate" });
+    await scoped("create_tag", { tagName: "release" });
+    await scoped("create_alias", { aliasName: "current", target: { kind: "tag", name: "release" } });
+    assert.ok((await scoped("list_branches")).branches.some(ref => ref.name === "candidate"));
+    assert.ok((await scoped("list_tags")).tags.some(ref => ref.name === "release"));
+    assert.ok((await scoped("list_aliases")).aliases.some(ref => ref.aliasName === "current"));
     for (const ref of [
       { kind: "branch", name: "candidate" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }
     ]) {
@@ -222,6 +226,13 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
       const result = await scoped("fetch_docs", { ids: ["branch-only"], ref: { kind: "branch", name: "candidate" }, consistentRead: true });
       return result.docs.length === 1;
     }, "branch write visibility", 90_000);
+    await scoped("update_docs", { branch: "candidate", docs: [{ id: "branch-only", title: "Updated memory" }] });
+    await eventually(async () => {
+      const result = await scoped("fetch_docs", { ids: ["branch-only"], ref: { kind: "branch", name: "candidate" }, consistentRead: true });
+      if (result.docs[0]?.doc.title !== "Updated memory") return false;
+      assert.equal(result.docs[0].doc.marker, "branch");
+      return true;
+    }, "partial update preserves omitted fields", 90_000);
     const main = await scoped("fetch_docs", { ids: ["branch-only"], consistentRead: true });
     assert.equal(main.docs.length, 0);
     await scoped("delete_docs", { branch: "candidate", ids: ["branch-only"] });
@@ -229,15 +240,41 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
       const result = await scoped("fetch_docs", { ids: ["branch-only"], ref: { kind: "branch", name: "candidate" }, consistentRead: true });
       return result.docs.length === 0;
     }, "branch delete visibility", 90_000);
+    await scoped("bulk_upsert_docs", { branch: "candidate", docs: [{ id: "bulk-only", marker: "bulk" }] });
+    await eventually(async () => {
+      const result = await scoped("fetch_docs", { ids: ["bulk-only"], ref: { kind: "branch", name: "candidate" } });
+      return result.docs.length === 1;
+    }, "bulk committed visibility");
+    const retargeted = await scoped("retarget_alias", { aliasName: "current", target: { kind: "branch", name: "candidate" } });
+    assert.equal(retargeted.alias.targetName, "candidate");
+    assert.equal((await scoped("fetch_docs", { ids: ["bulk-only"], ref: { kind: "alias", name: "current" } })).docs.length, 1);
+    await scoped("delete_alias", { aliasName: "current" });
+    await scoped("delete_tag", { tagName: "release" });
+    await scoped("delete_branch", { branchName: "candidate" });
+    assert.equal((await scoped("list_aliases")).aliases.length, 0);
+    assert.equal((await scoped("list_tags")).tags.length, 0);
+    assert.deepEqual((await scoped("list_branches")).branches.map(ref => ref.name), ["main"]);
+    const configured = await scoped("update_collection", { description: "Updated MCP smoke", tags: {} });
+    assert.equal(configured.collection.description, "Updated MCP smoke");
+    assert.deepEqual(configured.collection.tags ?? {}, {});
+    console.info("[live] Ref lifecycle, partial update, bulk ingestion and collection settings: PASS");
     await scoped("delete_docs", { branch: "main", filter: { queryString: { query: "marker:offload" } } });
     assert.ok(trace.some((entry) => entry.status === 202));
     console.info("[live] Branch write isolation, delete by IDs, delete by filter HTTP 202: PASS");
+    await scoped("delete_collection");
+    deleted = true;
+    console.info("[live] Collection deletion through MCP: PASS");
   } catch (error) {
     throw safeError(error);
   } finally {
     try {
       if (created) {
-        await collection.delete({ timeoutMs: 30_000 });
+        // Cleanup must not depend on the MCP session under test still working.
+        if (!deleted) {
+          await collection.delete({ timeoutMs: 30_000 }).catch((error) => {
+            if (!(error instanceof ResourceNotFoundError)) throw error;
+          });
+        }
         await eventually(async () => {
           const result = await collection.getSafe({ timeoutMs: 30_000 });
           if (result.ok) return false;
