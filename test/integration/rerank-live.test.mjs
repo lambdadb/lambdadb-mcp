@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { getEnvConfig } from "../../dist/config/env.js";
 import { createLambdaDBClient } from "../../dist/lambdadb/client.js";
 import { createServer } from "../../dist/server/createServer.js";
+import { rerankQuery } from "./rerank-fallback.mjs";
 
 async function eventually(operation, label, timeoutMs = 300_000) {
   const started = Date.now();
@@ -131,29 +132,30 @@ test("live MCP native reranking, custom criteria, Cohere models, empty results, 
     const retrieval = new Map(baseline.docs.map(hit => [hit.doc.id, hit.score]));
     console.info("[live:rerank] Omitted/null retrieval behavior: PASS");
 
-    const defaults = await call("query_collection", { ...input, size: 1, rerank });
+    const defaults = await rerankQuery(call, { ...input, size: 1, rerank }, "Default criteria");
     assertApplied(defaults, "default-relevance-v1", 1, retrieval);
     assert.equal(docsUrl, undefined, "Projected result must be inline");
     console.info("[live:rerank] Default criteria, final size and inline envelopes: PASS");
 
     for (const model of ["rerank-v5.0-fast", "rerank-v5.0-pro"]) {
       const cohere = { ...rerank, provider: "cohere", model };
-      assertApplied(await call("query_collection", { ...input, size: 1, rerank: cohere }), "cohere-relevance-v1", 1, retrieval, cohere);
+      assertApplied(await rerankQuery(call, { ...input, size: 1, rerank: cohere }, "Cohere"),
+        "cohere-relevance-v1", 1, retrieval, cohere);
       assert.equal(docsUrl, undefined, "Projected result must be inline");
     }
     console.info("[live:rerank] Cohere rerank-v5.0-fast/pro without criteria: PASS");
 
-    const custom = await call("query_collection", { query, size: 2, rerank: { ...rerank, criteria: [
+    const custom = await rerankQuery(call, { query, size: 2, rerank: { ...rerank, criteria: [
       "Does not explain restoring a collection.",
       "Explains how to restore a previous collection version."
-    ] } });
+    ] } }, "Custom criteria");
     assertApplied(custom, "custom", 2, retrieval);
     assert.ok(docsUrl !== undefined && downloadedDocs !== undefined, "Large projection must actually download");
     for (const { doc } of custom.docs) assert.equal(digest(doc.payload), digest(payload));
     assert.deepEqual(custom.docs.map(hit => hit.doc.id).sort(), ids);
     console.info("[live:rerank] Custom criteria, docsUrl envelopes, payload integrity and credential isolation: PASS");
 
-    const empty = await call("query_collection", { ...input, query: { queryString: { query: "title:nonexistenttoken" } }, rerank });
+    const empty = await rerankQuery(call, { ...input, query: { queryString: { query: "title:nonexistenttoken" } }, rerank }, "Empty candidates");
     assert.deepEqual(empty.docs, []);
     assert.equal(empty.total, 0);
     assert.equal(empty.maxScore, undefined);

@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { getEnvConfig } from "../../dist/config/env.js";
 import { createLambdaDBClient } from "../../dist/lambdadb/client.js";
 import { createServer } from "../../dist/server/createServer.js";
+import { rerankQuery } from "./rerank-fallback.mjs";
 
 // Separate from credential-free CI. Never print SDK errors or signed URLs.
 test("live MCP Bayesian, native/legacy/Cohere embeddings, rerank downloads and cleanup", { timeout: 600_000 }, async () => {
@@ -141,8 +142,9 @@ test("live MCP Bayesian, native/legacy/Cohere embeddings, rerank downloads and c
     stage = "Bayesian rerank inline and docsUrl";
     const retrieval = new Map(baseline.docs.map(hit => [hit.doc.id, hit.score]));
     for (const offload of [false, true]) {
-      const result = await call("query_collection", { query, size: 2,
-        ...(offload ? {} : { fields }), rerank: offload ? { ...rerank, candidateSize: 30 } : rerank });
+      const result = await rerankQuery(call, { query, size: 2,
+        ...(offload ? {} : { fields }), rerank: offload ? { ...rerank, candidateSize: 30 } : rerank },
+        `Bayesian ${offload ? "docsUrl" : "inline"}`);
       assert.equal(result.rerank?.status, "applied");
       assert.equal(result.rerank.candidateCount, 2);
       assert.equal(result.rerank.scoredCount, 2);
