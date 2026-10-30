@@ -10,7 +10,7 @@ import { createLambdaDBClient } from "../../dist/lambdadb/client.js";
 import { createServer } from "../../dist/server/createServer.js";
 
 // Separate from credential-free CI. Never print SDK errors or signed URLs.
-test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup", { timeout: 600_000 }, async () => {
+test("live MCP Bayesian, native/legacy/Cohere embeddings, rerank downloads and cleanup", { timeout: 600_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
   assert.equal(process.env.LAMBDADB_RUN_LIVE_RERANK_TESTS, "1", "Embedding and rerank inference require opt-in");
   const config = getEnvConfig();
@@ -33,6 +33,7 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
   const query = { bayesian: [lexical, vector] };
   const rerank = { provider: "typesafe", model: "jev-1.13.0", queryText: "How do I restore a version?", fields: ["body"] };
   const embedding = { provider: "openai", model: "text-embedding-3-small", sourceField: "body" };
+  const cohere = { provider: "cohere", model: "embed-v5.0-fast", dimensions: 256, sources: [{ field: "body", type: "text" }] };
   const payload = "x".repeat(3 * 1024 * 1024);
 
   globalThis.fetch = async (input, init) => {
@@ -77,7 +78,8 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
     await call("create_collection", { indexConfigs: {
       body: { type: "text" }, raw: { type: "vector", dimensions: 64, similarity: "cosine" },
       native: { type: "vector", embedding: { ...embedding, dimensions: 512, similarity: "cosine" } },
-      legacy: { type: "vector", managedEmbedding: true, embedding }
+      legacy: { type: "vector", managedEmbedding: true, embedding },
+      cohere: { type: "vector", embedding: cohere }
     }, tags: { purpose: "mcp-bayesian-smoke" }, snapshotRetentionInDays: 1 });
     console.info(`[live:bayesian] Created ${collectionName}`);
     const metadata = (await call("get_collection")).collection.indexConfigs;
@@ -86,6 +88,10 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
       assert.equal(metadata[name].embedding.model, embedding.model);
     }
     assert.equal(metadata.native.embedding.dimensions, 512);
+    assert.deepEqual(metadata.cohere.embedding.sources, cohere.sources);
+    assert.equal(metadata.cohere.embedding.sourceField, undefined);
+    assert.equal(metadata.cohere.embedding.provider, "cohere");
+    assert.equal(metadata.cohere.embedding.dimensions, 256);
     stage = "actual document embeddings";
     for (const [i, body] of ["Restore a saved collection version using a branch.", "Restore documents from a saved snapshot."].entries()) {
       await call("upsert_docs", { docs: [{ id: `doc-${i}`, body, raw: [1, i, ...Array(62).fill(0)], payload }] });
@@ -100,7 +106,11 @@ test("live MCP Bayesian, native/legacy embeddings, rerank downloads and cleanup"
       assert.equal((await call("query_collection", { query: nativeQuery, size: 2, fields })).docs.length, 2);
       assert.equal((await call("query_collection", { query: { bayesian: [lexical, nativeQuery] }, size: 2, candidateSize: 30, fields })).docs.length, 2);
     }
-    console.info("[live:bayesian] Native/legacy metadata, document embeddings, ordinary KNN and Bayesian queryText: PASS");
+    for (const input of [{ queryText: "restore a version" }, { queryInputs: [{ type: "text", value: "restore a version" }] }]) {
+      const cohereQuery = { knn: { field: "cohere", k: 30, ...input } };
+      assert.equal((await call("query_collection", { query: cohereQuery, size: 2, fields })).docs.length, 2);
+    }
+    console.info("[live:bayesian] Native/legacy/Cohere sources metadata, document embeddings, ordinary KNN, queryInputs and Bayesian queryText: PASS");
     stage = "Bayesian budgets and existing fusion";
     const input = { query, size: 2, candidateSize: 30, fields };
     const baseline = await call("query_collection", input);

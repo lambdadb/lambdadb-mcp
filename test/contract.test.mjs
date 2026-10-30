@@ -514,6 +514,32 @@ test("invalid reranking fails before HTTP, including UTF-8 limits and scoring re
   assert.equal(h.requests.length, 0);
 });
 
+const cohereRerank = { provider: "cohere", model: "rerank-v5.0-fast", queryText: "Restore a collection", fields: ["title"] };
+
+test("Cohere reranking passes schema and HTTP unchanged and rejects criteria or mixed models", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs: [], total: 0, took: 1, isDocsInline: true } }) });
+  const schema = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_query_collection").inputSchema;
+  const validate = new AjvJsonSchemaValidator().getValidator(schema);
+  for (const options of [{}, { model: "rerank-v5.0-pro" }, { criteria: null, candidateSize: 1000, onFailure: "returnOriginal" }]) {
+    const input = { ...query, size: 5, rerank: { ...cohereRerank, ...options } };
+    assert.equal(validate({ collectionName: "items", ...input }).valid, true, JSON.stringify(options));
+    data(await h.call("query_collection", { collectionName: "items", ...input }));
+    assert.deepEqual(h.requests.at(-1).body.rerank, input.rerank);
+    assert.deepEqual(h.requests.at(-1).body, JSON.parse(queryCollectionRequestBodyToJSON(input)));
+  }
+  const accepted = h.requests.length;
+  for (const rerank of [
+    { ...cohereRerank, criteria: ["Unrelated.", "Relevant."] }, { ...cohereRerank, criteria: [] },
+    { ...cohereRerank, model: "jev-1.13.0" }, { ...cohereRerank, model: "rerank-v3.5" },
+    { ...cohereRerank, provider: "typesafe" }, { ...cohereRerank, fields: [] }, { ...cohereRerank, candidateSize: 1001 }
+  ]) {
+    const input = { collectionName: "items", ...query, size: 5, rerank };
+    assert.equal(validate(input).valid, false, JSON.stringify(rerank));
+    assert.equal((await h.call("query_collection", input)).isError, true, JSON.stringify(rerank));
+  }
+  assert.equal(h.requests.length, accepted, "Invalid Cohere reranking must fail before HTTP");
+});
+
 test("rerank envelopes preserve zero, precision, server order and metadata inline and through docsUrl", async (t) => {
   const rankedDocs = [
     { collection: "items", doc: { id: "second", score: "user data" }, score: 0.80000002, retrievalScore: 0 },
@@ -526,6 +552,7 @@ test("rerank envelopes preserve zero, precision, server order and metadata inlin
     { docs: [rankedDocs[2]], maxScore: 0, rerank: { ...baseMetadata, candidateCount: 1, scoredCount: 1, status: "applied", criteriaVersion: "default-relevance-v1" } },
     { docs: [], rerank: { ...baseMetadata, candidateCount: 0, scoredCount: 0, status: "skipped", reason: "noCandidates" } },
     { docs, maxScore: 1, rerank: { ...baseMetadata, scoredCount: 0, status: "fallback", reason: "timeout" } },
+    { docs: rankedDocs, maxScore: 0.80000002, rerank: { ...baseMetadata, provider: "cohere", model: "rerank-v5.0-fast", status: "applied", criteriaVersion: "cohere-relevance-v1" } },
     { docs, maxScore: 1 }
   ];
   for (const response of responses) for (const download of [false, true]) for (const search of [query, { query: bayesian }]) {
@@ -691,4 +718,49 @@ test("SDK rejects contradictory native vectors and missing provider/model withou
     assert.equal(result.isError, true);
   }
   assert.equal(h.requests.length, 0);
+});
+
+test("native embedding sources and Cohere configs reach HTTP unchanged; stored metadata and id round-trip", async (t) => {
+  const textSources = [{ field: "title", type: "text" }];
+  const cohere = { provider: "cohere", model: "embed-v5.0-fast", sources: [{ field: "product.description", type: "text" }, { field: "product.images", type: "image" }] };
+  const stored = { title: { type: "text" }, id: { type: "keyword" },
+    embedding: { type: "vector", embedding: { ...cohere, sourceField: null, dimensions: 256, similarity: "cosine" } } };
+  const h = await harness(t, { write: true, respond: req => req.method === "POST"
+    ? { status: 201, body: { collection: created } }
+    : { body: { collection: { ...collection, indexConfigs: stored } } } });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_collection");
+  assert.match(tool.inputSchema.properties.indexConfigs.description, /sources/);
+  assert.match(tool.description, /cohere/);
+  const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
+  for (const embedding of [
+    { provider: "openai", model: "text-embedding-3-small", sources: textSources },
+    { provider: "openai", model: "text-embedding-3-small", sourceField: null, sources: textSources },
+    { provider: "openai", model: "text-embedding-3-small", sourceField: "title", sources: null },
+    { ...cohere, dimensions: 256, similarity: "cosine" },
+    { provider: "cohere", model: "embed-v5.0-fast", sourceField: "title" }
+  ]) {
+    const input = { collectionName: "items", indexConfigs: { title: { type: "text" }, embedding: { type: "vector", embedding } } };
+    assert.equal(validate(input).valid, true);
+    data(await h.call("create_collection", input));
+    assert.deepEqual(h.requests.at(-1).body, input);
+  }
+  // The server-managed id field returned in metadata may be sent back unchanged.
+  const fetched = data(await h.call("get_collection", { collectionName: "items" }));
+  const { sourceField: _, ...withoutSourceField } = stored.embedding.embedding;
+  assert.deepEqual(fetched.collection.indexConfigs, { ...stored, embedding: { type: "vector", embedding: withoutSourceField } });
+  const roundTrip = { collectionName: "items", indexConfigs: fetched.collection.indexConfigs };
+  data(await h.call("create_collection", roundTrip));
+  assert.deepEqual(h.requests.at(-1).body, roundTrip);
+  const accepted = h.requests.length;
+  for (const embedding of [
+    { ...cohere, sourceField: "title" }, { provider: "cohere", model: "embed-v5.0-fast" },
+    { provider: "cohere", model: "embed-v5.0-fast", sourceField: null, sources: null },
+    { ...cohere, sources: [] }, { ...cohere, sources: Array.from({ length: 17 }, (_, i) => ({ field: `f${i}`, type: "text" })) },
+    { ...cohere, sources: [{ field: "title", type: "audio" }] }, { ...cohere, sources: [{ field: "title", type: "text", weight: 1 }] },
+    { ...cohere, provider: "voyage" }
+  ]) {
+    const result = await h.call("create_collection", { collectionName: "items", indexConfigs: { embedding: { type: "vector", embedding } } });
+    assert.equal(result.isError, true, JSON.stringify(embedding));
+  }
+  assert.equal(h.requests.length, accepted, "Invalid embedding sources must fail before HTTP");
 });

@@ -17,7 +17,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_create_collection",
     {
       title: "Create Collection",
-      description: `Create a new collection in the configured project. Fixed lowercase text analyzer presets: ${Object.values(Analyzer).join(", ")}. Omitted analyzers uses standard; custom pipelines/options are unsupported. The keyword text analyzer is distinct from the keyword field type. Keyword indexes built on a supporting server support facets. Native embedding vector fields accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers.`,
+      description: `Create a new collection in the configured project. Fixed lowercase text analyzer presets: ${Object.values(Analyzer).join(", ")}. Omitted analyzers uses standard; custom pipelines/options are unsupported. The keyword text analyzer is distinct from the keyword field type. Keyword indexes built on a supporting server support facets. Native embedding vector fields accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers. Native embedding providers: openai, cohere.`,
       annotations: {
         openWorldHint: false
       },
@@ -26,7 +26,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
         indexConfigs: z.record(z.string(), z.any()).refine(
           (value) => Object.keys(value).length > 0,
           "indexConfigs must contain at least one field."
-        ).describe("Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider, model, sourceField, dimensions?, similarity?}}; sourceField may be an unindexed stored string path. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity. Supplied dimensions must be integers from 64 to 4096; similarity supports only cosine or euclidean. Model-specific native dimension maxima are server-validated."),
+        ).describe("Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider: 'openai'|'cohere', model, sourceField or sources, dimensions?, similarity?}}. Use exactly one non-null sourceField (legacy single text path) or sources (1-16 ordered {field, type: 'text'|'image'} mappings; OpenAI requires exactly one text source, Cohere accepts text and image sources). Source paths may be unindexed stored paths. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity. Supplied dimensions must be integers from 64 to 4096; similarity supports only cosine or euclidean. Model-specific native dimensions and provider/model/source combinations are server-validated. The server-managed id field may be omitted or sent unchanged as {type: 'keyword'}."),
         description: z.string().max(255).optional(),
         tags: z.record(
           z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/),
@@ -68,7 +68,7 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     {
       title: "Upsert Documents",
       description:
-        "Submit ordinary document upserts to an explicit writable branch (omitted branch is main). Keep payloads small enough for the standard API path. Acceptance does not prove committed indexing. For eligible pending writes use query/fetch with consistentRead on that branch; do not replay writes to wait for visibility. Inspect an uncertain outcome before any explicit retry.",
+        "Submit ordinary document upserts to an explicit writable branch (omitted branch is main). Keep payloads small enough for the standard API path. Acceptance does not prove committed indexing. For eligible pending writes use query/fetch with consistentRead on that branch; do not replay writes to wait for visibility. Inspect an uncertain outcome before any explicit retry. For native embedding fields, provide the configured sources at their stored JSON paths, or supply the vector directly to skip inference.",
       annotations: {
         openWorldHint: false
       },

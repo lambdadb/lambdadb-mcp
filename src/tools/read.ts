@@ -27,19 +27,31 @@ const facetsSchema = z.record(z.string(), z.strictObject({
 
 // The SDK validates UTF-8 byte budgets, nonblank text, unique paths/criteria,
 // scoring-query requirements and cross-field bounds before sending HTTP.
-const rerankSchema = z.strictObject({
-  provider: z.literal("typesafe"),
-  model: z.literal("jev-1.13.0"),
+const rerankOptions = {
   queryText: z.string().min(1).describe("Required nonblank query text, at most 8 KiB UTF-8, including for raw vector queries."),
   fields: z.array(z.string().min(1)).min(1).max(8).meta({ uniqueItems: true })
     .describe("Unique stored scalar text paths in model input order; separate from returned fields projection."),
   candidateSize: z.number().int().min(1).max(1000).nullable().optional()
     .describe("Merged candidate cap, at least final size. Omitted/null defaults to max(50, size); never changes knn.k."),
   onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
-    .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures."),
-  criteria: z.array(z.string().min(1)).min(2).max(10).meta({ uniqueItems: true }).nullable().optional()
-    .describe("Distinct nonblank descriptions from lowest to highest relevance, at most 2 KiB each and 8 KiB total UTF-8. Omitted/null uses defaults.")
-}).nullable().optional().describe("Optional per-query native reranking; requires a scoring query and positive size, forbids sort. LambdaDB supplies provider credentials.");
+    .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures.")
+};
+// SDK 0.11.0 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
+const rerankSchema = z.discriminatedUnion("provider", [
+  z.strictObject({
+    provider: z.literal("typesafe"),
+    model: z.literal("jev-1.13.0"),
+    ...rerankOptions,
+    criteria: z.array(z.string().min(1)).min(2).max(10).meta({ uniqueItems: true }).nullable().optional()
+      .describe("Distinct nonblank descriptions from lowest to highest relevance, at most 2 KiB each and 8 KiB total UTF-8. Omitted/null uses defaults.")
+  }),
+  z.strictObject({
+    provider: z.literal("cohere"),
+    model: z.enum(["rerank-v5.0-pro", "rerank-v5.0-fast"]),
+    ...rerankOptions,
+    criteria: z.null().optional().describe("Unsupported for Cohere; omit or send null.")
+  })
+]).nullable().optional().describe("Optional per-query native reranking with typesafe/jev-1.13.0 (optional criteria) or cohere/rerank-v5.0-pro|rerank-v5.0-fast (no criteria); requires a scoring query and positive size, forbids sort. LambdaDB supplies provider credentials; model availability depends on the server.");
 
 export function registerReadTools(server: McpServer, config: EnvConfig): void {
   server.registerTool(
@@ -110,7 +122,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
           "Bayesian without rerank requires 1 <= size <= candidateSize <= 1000 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
         ),
         query: z.record(z.string(), z.any()).optional().describe(
-          "Free-form query; omit for match-all. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
+          "Free-form query; omit for match-all. Native embedding KNN uses exactly one of queryText, ordered queryInputs [{type: 'text'|'image', value}] or queryVector (a direct vector skips inference); caller-provided vector fields use queryVector. Top-level bayesian is an array of exactly two subqueries, with no explicit boosts on either subquery or its Boolean descendants. Nested rank fusion and fusion weights are unsupported. Server validates the query contract."
         ),
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
