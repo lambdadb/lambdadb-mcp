@@ -5,6 +5,10 @@ import { getEnvConfig } from "./config/env.js";
 import { createServer } from "./server/createServer.js";
 
 async function main(): Promise<void> {
+  // stdout is the MCP transport. The SDK's LAMBDADB_DEBUG logger prints requests,
+  // including the API key header, to stdout, and SDK 0.11.0 and earlier enable
+  // it for any non-empty value, including "false". Never let it run here.
+  delete process.env.LAMBDADB_DEBUG;
   const config = getEnvConfig();
   const server = createServer(config);
   const transport = new StdioServerTransport();
