@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.1] - 2026-10-30
+
 - Ignore `LAMBDADB_DEBUG`. The LambdaDB SDK's debug logger prints every request,
   including the `x-api-key` header, to stdout, which is the MCP transport. SDK
   0.11.0 and earlier enable it for any non-empty value, including `false`, which
