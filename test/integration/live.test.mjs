@@ -28,8 +28,7 @@ async function eventually(operation, label, timeoutMs = 300_000) {
 // No environment values, presigned URLs, or document payloads are logged.
 test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cleanup", { timeout: 900_000 }, async () => {
   assert.equal(process.env.LAMBDADB_RUN_LIVE_TESTS, "1", "Live smoke requires explicit opt-in");
-  // This suite verifies full multi-MiB payloads through the tools, so disable the result cut.
-  const config = getEnvConfig({ ...process.env, LAMBDADB_MCP_MAX_RESULT_BYTES: "0" });
+  const config = getEnvConfig();
   assert.equal(process.env.LAMBDADB_LIVE_CONFIRM_PROJECT, config.projectName,
     "Explicitly confirm the designated development project before live writes");
   assert.equal(config.enableWriteTools, true, "Live smoke requires LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true");

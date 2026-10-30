@@ -31,7 +31,7 @@ const lexical = { queryString: { query: "title:restore" } };
 const vector = { knn: { field: "embedding", queryVector: [1, 0], k: 30 } };
 const bayesian = { bayesian: [lexical, vector] };
 
-async function harness(t, { write = false, respond, env = {} } = {}) {
+async function harness(t, { write = false, respond } = {}) {
   const requests = [];
   const api = createHttpServer(async (req, res) => {
     try {
@@ -51,7 +51,7 @@ async function harness(t, { write = false, respond, env = {} } = {}) {
   const baseUrl = `http://127.0.0.1:${api.address().port}`;
   const config = getEnvConfig({
     LAMBDADB_BASE_URL: baseUrl, LAMBDADB_PROJECT_NAME: "test",
-    LAMBDADB_PROJECT_API_KEY: "test-secret", ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {}), ...env
+    LAMBDADB_PROJECT_API_KEY: "test-secret", ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {})
   });
   const server = createServer(config);
   const client = new Client({ name: "contract-test", version: "1.0.0" });
@@ -67,7 +67,7 @@ async function harness(t, { write = false, respond, env = {} } = {}) {
       PATH: process.env.PATH,
       LAMBDADB_BASE_URL: baseUrl, LAMBDADB_PROJECT_NAME: "test",
       LAMBDADB_PROJECT_API_KEY: "test-secret",
-      ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {}), ...env
+      ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {})
     }
   }) : inMemoryClient;
   let stderr = "";
@@ -962,48 +962,4 @@ test("validation and lookup errors are actionable and results are compact", asyn
   const fetched = await h.call("get_collection", { collectionName: "items" });
   assert.deepEqual(data(fetched).collection.indexConfigs, collection.indexConfigs);
   assert.ok(!fetched.content[0].text.includes("\n  "), "results are compact JSON");
-});
-
-test("document results above the configured byte budget are cut to whole documents", async t => {
-  const big = Array.from({ length: 30 }, (_, i) => ({ collection: "items", score: 1, doc: { id: `doc-${i}`, body: "x".repeat(200) } }));
-  const respond = req => req.url.pathname.endsWith("/docs/list")
-    ? { body: { total: big.length, docs: big, nextPageToken: "after-page", isDocsInline: true } }
-    : { body: { took: 1, maxScore: 1, total: big.length, docs: big, isDocsInline: true } };
-  const limited = await harness(t, { respond, env: { LAMBDADB_MCP_MAX_RESULT_BYTES: "2048" } });
-  const page = data(await limited.call("list_docs", { collectionName: "items", size: 30, fields: { include: ["id", "body"] } }));
-  assert.equal(page.nextPageToken, undefined, "a token that skips dropped documents is not offered as the continuation");
-  assert.equal(page.truncated.nextPageTokenAfterDropped, "after-page");
-  assert.match(page.truncated.hint, /same pageToken/);
-  assert.ok(page.docs.length > 0 && page.docs.length < 30);
-  const cut = await limited.call("query_collection", { collectionName: "items", size: 30 });
-  const result = data(cut);
-  assert.match(cut.content[0].text, /^Collection query completed successfully\. Result truncated to \d+ of 30 documents\./);
-  assert.ok(result.docs.length > 0 && result.docs.length < 30, String(result.docs.length));
-  assert.deepEqual(result.docs, big.slice(0, result.docs.length));
-  assert.equal(result.truncated.returnedDocs, result.docs.length);
-  assert.equal(result.truncated.droppedDocs, 30 - result.docs.length);
-  assert.equal(result.truncated.limitBytes, 2048);
-  assert.equal(result.truncated.nextPageTokenAfterDropped, undefined);
-  assert.doesNotMatch(result.truncated.hint, /pageToken/);
-  assert.ok(Buffer.byteLength(cut.content[0].text.split("\n\n").slice(1).join("\n\n")) <= 2048);
-  assert.equal(result.total, 30);
-  const huge = { collection: "items", doc: { id: "huge", body: "x".repeat(5000), title: "t" } };
-  const small = (id) => ({ collection: "items", doc: { id, body: "y".repeat(100) } });
-  const oversized = await harness(t, { respond: () => ({ body: { took: 1, total: 3, docs: [huge, small("a"), small("b")], isDocsInline: true } }),
-    env: { LAMBDADB_MCP_MAX_RESULT_BYTES: "2048" } });
-  const skipped = data(await oversized.call("fetch_docs", { collectionName: "items", ids: ["huge", "a", "b"] }));
-  assert.deepEqual(skipped.docs.map(item => item.doc.id), ["a", "b"]);
-  assert.equal(skipped.truncated.returnedDocs, 2);
-  assert.equal(skipped.truncated.droppedDocs, 1);
-  assert.equal(skipped.truncated.oversizedDocs, 1);
-  assert.deepEqual(skipped.truncated.oversized, [{ id: "huge", bytes: Buffer.byteLength(JSON.stringify(huge)), fieldBytes: { id: 6, body: 5002, title: 3 } }]);
-  assert.match(skipped.truncated.hint, /oversized/);
-  const unlimited = await harness(t, { respond, env: { LAMBDADB_MCP_MAX_RESULT_BYTES: "0" } });
-  const full = data(await unlimited.call("query_collection", { collectionName: "items", size: 30 }));
-  assert.equal(full.docs.length, 30);
-  assert.equal(full.truncated, undefined);
-  const base = { LAMBDADB_BASE_URL: "http://127.0.0.1:1", LAMBDADB_PROJECT_NAME: "p", LAMBDADB_PROJECT_API_KEY: "k" };
-  assert.equal(getEnvConfig(base).maxResultBytes, 65_536);
-  assert.throws(() => getEnvConfig({ ...base, LAMBDADB_MCP_MAX_RESULT_BYTES: "lots" }), /LAMBDADB_MCP_MAX_RESULT_BYTES/);
-  assert.throws(() => getEnvConfig({ ...base, LAMBDADB_MCP_MAX_RESULT_BYTES: "-1" }), /LAMBDADB_MCP_MAX_RESULT_BYTES/);
 });
