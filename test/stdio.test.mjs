@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -58,6 +59,43 @@ for (const termination of ['EOF', 'SIGTERM', 'SIGINT']) {
     assert.ok(messages.every(message => message.jsonrpc === '2.0'));
     assert.equal(messages[0].result.serverInfo.version, version);
     assert.equal(messages[0].result.serverInfo.name, 'lambdadb-mcp');
+  });
+}
+
+for (const debug of ['true', 'false']) {
+  test(`LAMBDADB_DEBUG=${debug} never writes SDK request logs or the key to stdout`, { timeout: 10000 }, async t => {
+    const api = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ collections: [] }));
+    });
+    await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
+    t.after(() => api.close());
+    const h = start(t, { ...configured, LAMBDADB_BASE_URL: `http://127.0.0.1:${api.address().port}`, LAMBDADB_DEBUG: debug });
+    const send = message => h.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+    let buffer = '';
+    const responses = new Set();
+    const response = id => new Promise((resolve, reject) => {
+      h.child.once('error', reject);
+      const check = () => { if (responses.has(id)) resolve(); };
+      h.child.stdout.on('data', chunk => {
+        buffer += chunk;
+        for (const line of buffer.split('\n').slice(0, -1)) { try { responses.add(JSON.parse(line).id); } catch { /* asserted below */ } }
+        check();
+      });
+      check();
+    });
+    send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'package-test', version: '1' } } });
+    await response(1);
+    send({ method: 'notifications/initialized' });
+    send({ id: 2, method: 'tools/call', params: { name: 'lambdadb_list_collections', arguments: {} } });
+    await response(2);
+    h.child.stdin.end();
+    assert.equal((await h.closed)[0], 0);
+    const { stdout, stderr } = h.output();
+    assert.ok(!stdout.includes('synthetic-secret') && !stderr.includes('synthetic-secret'));
+    const messages = stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(messages.every(message => message.jsonrpc === '2.0'));
+    assert.equal(messages.find(message => message.id === 2).result.isError, undefined);
   });
 }
 

@@ -117,6 +117,10 @@ LAMBDADB_PROJECT_API_KEY=replace-me
 LAMBDADB_MCP_ENABLE_WRITE_TOOLS=false
 ```
 
+The server ignores the LambdaDB SDK's `LAMBDADB_DEBUG` variable. That logger
+writes requests, including the API key header, to stdout, which is the MCP
+transport.
+
 ## Available Tools
 
 Read-only:

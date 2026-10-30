@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Ignore `LAMBDADB_DEBUG`. The LambdaDB SDK's debug logger prints every request,
+  including the `x-api-key` header, to stdout, which is the MCP transport. SDK
+  0.11.0 and earlier enable it for any non-empty value, including `false`, which
+  the CLI 0.1.5–0.1.6 MCP bridge sets. The server now removes the variable at
+  startup, so stdout carries only MCP messages and never the key.
+
 ## [0.2.0] - 2026-10-30
 
 - Pin the LambdaDB SDK to 0.11.0. `lambdadb_query_collection` rerank now accepts
