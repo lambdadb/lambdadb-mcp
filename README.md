@@ -35,19 +35,18 @@ run commands, change credentials or authorize writes.
 Package: `@functional-systems/lambdadb-mcp`. Executable: `lambdadb-mcp`.
 Requires Node.js >=22.14.0; CI tests the minimum and current Node 22/24 LTS.
 
-As verified on 2026-10-25 (KST), npm `latest` resolves to `0.1.5`; `dev` advances
-separately. Use an exact published version for reproducibility or the stable
-channel for initial setup. See [release status and policy](RELEASING.md).
+npm `latest` resolves to the current stable release; `dev` advances separately.
+Use an exact published version for reproducibility or the stable channel for
+initial setup. See [release status and policy](RELEASING.md).
 
-[MCP 0.1.5](https://github.com/lambdadb/lambdadb-mcp/releases/tag/v0.1.5) is published
-with LambdaDB SDK `0.8.1`, MCP SDK `1.32.2`, patched dependencies and Kiro/Claude
-query-schema compatibility. Releases are trunk-based on `main`, which carries the
-last released version; CI derives development versions from tags. Dev publication
-is skipped below the current `0.2.0-dev.2` until a 0.2.0 RC or release is tagged
-(see [RELEASING.md](RELEASING.md)). Check npm for the current published dev
-version. Existing direct MCP installations need the new MCP version and an agent
-restart. CLI 0.1.5 still pins
-MCP 0.1.4 and needs a subsequent CLI release with an updated pin.
+MCP 0.2.0 pins LambdaDB SDK `0.11.0`: Cohere native embedding and reranking,
+ordered embedding `sources`, `knn.queryInputs`, the server-managed `id` field and
+1000-result Query/Fetch/List limits. Vector dimensions must be 64 to 4096 and
+similarity cosine or euclidean. Releases are trunk-based on `main`, which carries
+the last released version; CI derives development versions from tags (see
+[RELEASING.md](RELEASING.md)). Existing direct MCP installations need the new MCP
+version and an agent restart. CLI 0.1.6 pins MCP 0.1.5 and needs a subsequent CLI
+release with an updated pin.
 
 This checkout pins MCP SDK `1.32.2` and requires Zod `^4.6.7`, with patched
 transitive dependencies in the lockfile. It replaces the query tool's top-level
@@ -61,7 +60,7 @@ those features to this stdio-only server. See the
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.1.5
+npx --yes @functional-systems/lambdadb-mcp@0.2.0
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
