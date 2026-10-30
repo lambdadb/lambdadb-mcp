@@ -13,6 +13,7 @@ import {
   partitionFilterSchema,
   readOptions,
   readRefSchema,
+  docsResult,
   withLambdaDB
 } from "./shared.js";
 
@@ -80,7 +81,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_get_collection",
     {
       title: "Get Collection",
-      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents.",
+      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -108,7 +109,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         size: z.number().int().min(0).max(1000).optional()
-          .describe("Documents to return (1–1000), or 0 with nonempty facets."),
+          .describe("Documents to return (1–1000), or 0 with nonempty facets. Keep exploration small (20 or fewer) and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
         // Preserve SDK/server validation and error classification for free-form queries.
         candidateSize: z.number().int().optional().describe(
           "Bayesian without rerank requires 1 <= size <= candidateSize <= 1000 (size defaults to 10 on the server). With rerank, omit this field and use rerank.candidateSize, whose default is unchanged. Unsupported for other queries; server validates these combinations."
@@ -125,7 +126,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         includeVectors: includeVectorsSchema,
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
         sort: z.array(z.record(
-          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/)
+          z.string(), z.string().regex(/^([aA][sS][cC]|[dD][eE][sS][cC])$/, "Sort direction must be 'asc' or 'desc'.")
         )).optional().describe("Ordered single-key objects mapping an indexed field to 'asc' or 'desc', e.g. [{createdAt: 'desc'}]. Omit for score order; not allowed with rerank."),
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
@@ -175,7 +176,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         partitionFilter
       };
       const result = await client.collection(collectionName).query(input);
-      return jsonResult("Collection query completed successfully.", result);
+      return docsResult(config, "Collection query completed successfully.", result);
     })
   );
 
@@ -190,7 +191,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000)."),
+        size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000). Keep pages small and narrow fields; results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
         pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response; keep the other inputs unchanged between pages."),
         ref: readRefSchema.optional(),
         filter: z.record(z.string(), z.any()).optional().describe("Filter applied before pagination using the queryString and bool shapes of lambdadb_query_collection, e.g. {queryString: {query: 'category:docs'}}. Vector and ranking queries are not allowed."),
@@ -211,7 +212,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         includeVectors,
         partitionFilter
       });
-      return jsonResult("Documents listed successfully.", result);
+      return docsResult(config, "Documents listed successfully.", result);
     })
   );
 
@@ -226,7 +227,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000)."),
+        ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Results above LAMBDADB_MCP_MAX_RESULT_BYTES are cut to whole documents."),
         ref: readRefSchema.optional(),
         consistentRead: z.boolean().optional().describe(
           "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429."
@@ -253,7 +254,7 @@ export function registerReadTools(server: McpServer, config: EnvConfig): void {
         partitionFilter
       };
       const result = await client.collection(collectionName).docs.fetch(input);
-      return jsonResult("Documents fetched successfully.", result);
+      return docsResult(config, "Documents fetched successfully.", result);
     })
   );
 }

@@ -12,8 +12,8 @@ import type { EnvConfig } from "../config/env.js";
 import { jsonResult, nameSchema, partitionFilterSchema, withLambdaDB, writeBranchSchema } from "./shared.js";
 
 const tagsSchema = z.record(
-  z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/),
-  z.string().min(1).max(127).regex(/^[^:#,]+$/)
+  z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/, "Tag keys use 1–63 letters, digits, dots, underscores, or hyphens."),
+  z.string().min(1).max(127).regex(/^[^:#,]+$/, "Tag values are 1–127 characters without ':', '#', or ','.")
 ).refine((value) => Object.keys(value).length <= 5, "At most five tags are allowed.");
 const retentionSchema = z.number().int().min(1).max(31);
 const docsSchema = z.array(z.record(z.string(), z.any())).min(1);

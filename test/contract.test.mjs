@@ -31,7 +31,7 @@ const lexical = { queryString: { query: "title:restore" } };
 const vector = { knn: { field: "embedding", queryVector: [1, 0], k: 30 } };
 const bayesian = { bayesian: [lexical, vector] };
 
-async function harness(t, { write = false, respond } = {}) {
+async function harness(t, { write = false, respond, env = {} } = {}) {
   const requests = [];
   const api = createHttpServer(async (req, res) => {
     try {
@@ -51,7 +51,7 @@ async function harness(t, { write = false, respond } = {}) {
   const baseUrl = `http://127.0.0.1:${api.address().port}`;
   const config = getEnvConfig({
     LAMBDADB_BASE_URL: baseUrl, LAMBDADB_PROJECT_NAME: "test",
-    LAMBDADB_PROJECT_API_KEY: "test-secret", ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {})
+    LAMBDADB_PROJECT_API_KEY: "test-secret", ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {}), ...env
   });
   const server = createServer(config);
   const client = new Client({ name: "contract-test", version: "1.0.0" });
@@ -67,7 +67,7 @@ async function harness(t, { write = false, respond } = {}) {
       PATH: process.env.PATH,
       LAMBDADB_BASE_URL: baseUrl, LAMBDADB_PROJECT_NAME: "test",
       LAMBDADB_PROJECT_API_KEY: "test-secret",
-      ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {})
+      ...(write ? { LAMBDADB_MCP_ENABLE_WRITE_TOOLS: "true" } : {}), ...env
     }
   }) : inMemoryClient;
   let stderr = "";
@@ -937,4 +937,53 @@ test("bulk workflow forwards signed headers without credentials and finalizes on
       assert.deepEqual(h.requests[2].body, { objectKey: "upload-one", type: "application/json", branch: "candidate" });
     }
   }
+});
+
+test("validation and lookup errors are actionable and results are compact", async t => {
+  const h = await harness(t, { write: true, respond: req => req.url.pathname.endsWith("/collections/missing")
+    ? { status: 404, body: { message: "Collection missing not found" } }
+    : req.url.pathname.endsWith("/branches/ghost") ? { status: 404, body: { message: "Branch ghost not found" } }
+    : { body: { collection } } });
+  const bogus = await h.call("create_collection", { collectionName: "items", indexConfigs: { title: { type: "bogus" } } });
+  assert.equal(bogus.isError, true);
+  assert.match(bogus.content[0].text, /^Input validation failed:\n- indexConfigs\.title\.type: expected one of "text", .*got "bogus"$/s);
+  assert.doesNotMatch(bogus.content[0].text, /unionErrors|"code"/);
+  const vector = await h.call("create_collection", { collectionName: "items", indexConfigs: { embedding: { type: "vector", dimensions: 3, similarity: "cosine" } } });
+  assert.match(vector.content[0].text, /^Input validation failed:\n- indexConfigs\.embedding\.dimensions: /);
+  assert.ok(vector.content[0].text.split("\n").length <= 3, vector.content[0].text);
+  const empty = await h.call("update_collection", { collectionName: "items" });
+  assert.equal(empty.content[0].text, "Input validation failed:\n- input: At least one non-null collection field must be provided");
+  const missing = await h.call("get_collection", { collectionName: "missing" });
+  assert.equal(missing.content[0].text, "Collection missing not found. Check the collection name with lambdadb_list_collections.");
+  const ghost = await h.call("delete_branch", { collectionName: "items", branchName: "ghost" });
+  assert.equal(ghost.content[0].text, "Branch ghost not found. Check the name with lambdadb_list_branches, lambdadb_list_tags, or lambdadb_list_aliases.");
+  assert.match((await h.call("query_collection", { collectionName: "items", sort: [{ a: "up" }] })).content[0].text, /Sort direction must be 'asc' or 'desc'/);
+  assert.match((await h.call("get_collection", { collectionName: "x" })).content[0].text, /3–52 letters, digits, underscores, or hyphens/);
+  const fetched = await h.call("get_collection", { collectionName: "items" });
+  assert.deepEqual(data(fetched).collection.indexConfigs, collection.indexConfigs);
+  assert.ok(!fetched.content[0].text.includes("\n  "), "results are compact JSON");
+});
+
+test("document results above the configured byte budget are cut to whole documents", async t => {
+  const big = Array.from({ length: 30 }, (_, i) => ({ collection: "items", score: 1, doc: { id: `doc-${i}`, body: "x".repeat(200) } }));
+  const respond = () => ({ body: { took: 1, maxScore: 1, total: big.length, docs: big, isDocsInline: true } });
+  const limited = await harness(t, { respond, env: { LAMBDADB_MCP_MAX_RESULT_BYTES: "2048" } });
+  const cut = await limited.call("query_collection", { collectionName: "items", size: 30 });
+  const result = data(cut);
+  assert.match(cut.content[0].text, /^Collection query completed successfully\. Result truncated to \d+ of 30 documents\./);
+  assert.ok(result.docs.length > 0 && result.docs.length < 30, String(result.docs.length));
+  assert.deepEqual(result.docs, big.slice(0, result.docs.length));
+  assert.equal(result.truncated.returnedDocs, result.docs.length);
+  assert.equal(result.truncated.droppedDocs, 30 - result.docs.length);
+  assert.equal(result.truncated.limitBytes, 2048);
+  assert.ok(Buffer.byteLength(cut.content[0].text.split("\n\n").slice(1).join("\n\n")) <= 2048);
+  assert.equal(result.total, 30);
+  const unlimited = await harness(t, { respond, env: { LAMBDADB_MCP_MAX_RESULT_BYTES: "0" } });
+  const full = data(await unlimited.call("query_collection", { collectionName: "items", size: 30 }));
+  assert.equal(full.docs.length, 30);
+  assert.equal(full.truncated, undefined);
+  const base = { LAMBDADB_BASE_URL: "http://127.0.0.1:1", LAMBDADB_PROJECT_NAME: "p", LAMBDADB_PROJECT_API_KEY: "k" };
+  assert.equal(getEnvConfig(base).maxResultBytes, 65_536);
+  assert.throws(() => getEnvConfig({ ...base, LAMBDADB_MCP_MAX_RESULT_BYTES: "lots" }), /LAMBDADB_MCP_MAX_RESULT_BYTES/);
+  assert.throws(() => getEnvConfig({ ...base, LAMBDADB_MCP_MAX_RESULT_BYTES: "-1" }), /LAMBDADB_MCP_MAX_RESULT_BYTES/);
 });

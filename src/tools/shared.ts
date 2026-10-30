@@ -5,7 +5,7 @@ import type { EnvConfig } from "../config/env.js";
 import { createLambdaDBClient } from "../lambdadb/client.js";
 import { formatLambdaDBError } from "../lambdadb/errors.js";
 
-export const nameSchema = z.string().regex(/^[a-zA-Z0-9_-]{3,52}$/);
+export const nameSchema = z.string().regex(/^[a-zA-Z0-9_-]{3,52}$/, "Names use 3–52 letters, digits, underscores, or hyphens.");
 export const branchRefSchema = z.strictObject({ kind: z.literal("branch"), name: nameSchema });
 export const tagRefSchema = z.strictObject({ kind: z.literal("tag"), name: nameSchema });
 export const readRefSchema = z.discriminatedUnion("kind", [
@@ -45,14 +45,42 @@ export async function withLambdaDB<T>(config: EnvConfig, run: (client: LambdaDBC
   }
 }
 
+// Compact JSON: indentation roughly doubles the tokens a client spends on each result.
 export function jsonResult(title: string, data: unknown) {
   return {
     content: [
       {
         type: "text" as const,
-        text: `${title}\n\n${JSON.stringify(data, null, 2)}`
+        text: `${title}\n\n${JSON.stringify(data)}`
       }
     ]
   };
+}
+
+// Keep whole documents up to the configured byte budget and say how many were dropped,
+// so a broad query cannot flood the client's context.
+export function docsResult(config: EnvConfig, title: string, data: { docs?: unknown[] }) {
+  const limit = config.maxResultBytes;
+  if (limit === 0 || !Array.isArray(data.docs) || Buffer.byteLength(JSON.stringify(data)) <= limit) {
+    return jsonResult(title, data);
+  }
+  const docs = data.docs;
+  const truncated = {
+    returnedDocs: 0,
+    droppedDocs: 0,
+    limitBytes: limit,
+    hint: "Result exceeded LAMBDADB_MCP_MAX_RESULT_BYTES. Request fewer documents with size, narrow fields, page with pageToken, or use the SDK for exports."
+  };
+  let used = Buffer.byteLength(JSON.stringify({ ...data, docs: [], truncated }));
+  let keep = 0;
+  for (const doc of docs) {
+    const size = Buffer.byteLength(JSON.stringify(doc)) + 1;
+    if (used + size > limit) break;
+    used += size;
+    keep++;
+  }
+  truncated.returnedDocs = keep;
+  truncated.droppedDocs = docs.length - keep;
+  return jsonResult(`${title} Result truncated to ${keep} of ${docs.length} documents.`, { ...data, docs: docs.slice(0, keep), truncated });
 }
 

@@ -21,6 +21,13 @@
   destructive and creation tools as non-destructive. Move the text analyzer
   preset list from the `lambdadb_create_collection` description to its
   `indexConfigs` parameter.
+- Return compact JSON from every tool, cap query/list/fetch results at
+  `LAMBDADB_MCP_MAX_RESULT_BYTES` (default 65536, `0` disables) by keeping whole
+  documents and reporting `truncated` counts, flatten SDK validation failures to
+  one `path: message` line per issue with only the matching index type branch,
+  add the list tool to use after a not-found error, name the accepted values in
+  name, tag and sort direction errors, and describe the read and write workflows
+  in the server instructions.
 - Pin the LambdaDB SDK to 0.11.1. Its only runtime change is that `LAMBDADB_DEBUG`
   enables the SDK debug logger only for `true` or `1`; the server still removes the
   variable at startup. Tool inputs and outputs are unchanged.
