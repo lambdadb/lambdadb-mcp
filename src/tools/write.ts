@@ -121,16 +121,16 @@ export function registerWriteTools(server: McpServer, config: EnvConfig): void {
     "lambdadb_update_collection",
     {
       title: "Update Collection",
-      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. Existing indexed fields cannot be redefined or removed; historical documents are not automatically backfilled. Lowering retention can shorten available history; null clears description, tags, or snapshotRetentionInDays alongside at least one non-null setting. These metadata tags are not version Tags.",
+      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. Existing indexed fields cannot be redefined or removed; historical documents are not automatically backfilled. Lowering retention can shorten available history. Omitted or null values leave settings unchanged; use an empty description or empty tags object to clear those fields. Retention cannot be cleared. These metadata tags are not version Tags.",
       annotations: { destructiveHint: true, openWorldHint: false },
-      // null clears description, tags or retention. The SDK rejects empty
-      // indexConfigs and inputs without a non-null field before any HTTP request.
+      // The SDK rejects empty indexConfigs and inputs without a non-null field
+      // before any HTTP request. The server treats null as unchanged.
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         indexConfigs: z.record(z.string(), z.any()).optional().describe("New fields to add, in the same shape as lambdadb_create_collection indexConfigs; existing fields cannot be changed or removed."),
-        description: z.string().max(255).nullable().optional().describe("New description (max 255 chars), or null to clear it."),
-        tags: tagsSchema.nullable().optional().describe("Replacement metadata tags (up to five), or null to clear them. These are not version Tags."),
-        snapshotRetentionInDays: retentionSchema.nullable().optional().describe("Retention in days (1–31), or null to clear it. Lowering it can shorten available asOf history.")
+        description: z.string().max(255).nullable().optional().describe("New description (max 255 chars); an empty string clears it. Null leaves it unchanged."),
+        tags: tagsSchema.nullable().optional().describe("Replacement metadata tags (up to five); an empty object clears them. Null leaves them unchanged. These are not version Tags."),
+        snapshotRetentionInDays: retentionSchema.nullable().optional().describe("Retention in days (1–31). Null leaves it unchanged; it cannot be cleared. Lowering it can shorten available asOf history.")
       })
     },
     ({ collectionName, ...changes }) => withLambdaDB(config, async client => {
