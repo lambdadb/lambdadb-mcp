@@ -863,9 +863,9 @@ test("collection settings and document patches retain explicit payloads; collect
   data(await h.call("update_collection", { collectionName: "items", ...changes }));
   assert.equal(h.requests[0].method, "PATCH");
   assert.deepEqual(h.requests[0].body, changes);
-  const cleared = { description: "Kept", tags: null, snapshotRetentionInDays: null };
-  data(await h.call("update_collection", { collectionName: "items", ...cleared }));
-  assert.deepEqual(h.requests[1].body, cleared);
+  const unchanged = { description: "Kept", tags: null, snapshotRetentionInDays: null };
+  data(await h.call("update_collection", { collectionName: "items", ...unchanged }));
+  assert.deepEqual(h.requests[1].body, unchanged);
   for (const branch of [undefined, "candidate"]) {
     const patch = { docs: [{ id: "one", nested: { value: "changed" }, values: [] }], ...(branch ? { branch } : {}) };
     const result = await h.call("update_docs", { collectionName: "items", ...patch });

@@ -173,7 +173,7 @@ Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
 | `delete_branch`, `delete_tag`, `delete_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Deleting an alias does not delete its target. |
 | `update_docs` | `docs` with existing IDs and optional `branch`. Preserves omitted fields, merges nested objects and replaces arrays. Missing IDs fail rather than insert. |
 | `bulk_upsert_docs` | `docs` and optional `branch`. Runs the SDK's upload-URL, upload, and ingestion workflow. |
-| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`; `null` clears the latter three. Index changes are additive; no automatic historical backfill. |
+| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`. Omitted or `null` values leave settings unchanged; use `description: ""` or `tags: {}` to clear those fields. Retention must be 1–31 and cannot be cleared. Index changes are additive; no automatic historical backfill. |
 | `delete_collection` | Deletes the collection, including its data and refs. |
 
 `asOf` is an integer Unix epoch millisecond cutoff, not an ISO date string.
