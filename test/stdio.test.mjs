@@ -108,7 +108,8 @@ for (const debug of ['true', 'false']) {
 if (process.env.MCP_TEST_CWD) {
   test('npm exec resolves the installed bin without a source checkout or network', { timeout: 10000 }, async t => {
     // Without project variables the server starts disconnected for LambdaDB Connect.
-    const h = start(t, {}, true);
+    // No project variables; npm's own update notice must not count as server output.
+    const h = start(t, { npm_config_update_notifier: 'false' }, true);
     h.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
       protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'package-test', version: '1' },
     } }) + '\n');

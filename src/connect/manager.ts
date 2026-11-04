@@ -196,7 +196,7 @@ export class ConnectionManager {
 
   private async issue(a: Attempt, p: Provider, connectionId: string, store: CredentialStore, token: string, scope: string[]) {
     const view = await connectionStatus(p, connectionId, token);
-    if (a.status !== "pending") return;
+    if (this.attempt !== a || a.status !== "pending") return;
     if (view.status === "region_requested" || !scope.includes("connection:issue")) {
       return this.finish(a, "region_requested", undefined, "A project was requested in a region that is not open yet, so nothing is connected. When the project is ready, start Connect again and select it.");
     }
@@ -205,6 +205,9 @@ export class ConnectionManager {
     }
     const projectId = view.project_id;
     const before = await readState(this.options.file);
+    // Cancellation can land during any await above. Check and enter issuing with
+    // no await in between, so a canceled attempt never claims a key.
+    if (this.attempt !== a || a.status !== "pending") return;
     // Record recovery identity before the claim, so an uncertain delivery is
     // recovered for this project instead of silently replaced.
     a.status = "issuing";

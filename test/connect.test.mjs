@@ -42,6 +42,8 @@ async function provider(t, plan = {}) {
         return send(400, { error: answer });
       }
       case `GET /project-connections/${CONNECTION}`:
+        plan.onStatus?.();
+        if (plan.statusGate) await plan.statusGate;
         return send(200, { connection_id: CONNECTION, status: plan.status ?? "ready", project_id: PROJECT, project_name: "items-project" });
       case `POST /project-connections/${CONNECTION}/key`:
         if (plan.claim === "lost") return req.socket.destroy();
@@ -181,6 +183,23 @@ test("a pending attempt is reused, and cancel stops it before any key exists", a
   assert.equal((await call("connection_status")).data.connection.status, "not_connected");
   const other = await call("connection_status", { attempt_id: "00000000-0000-4000-8000-000000000000" });
   assert.equal(other.data.status, "unknown");
+});
+
+test("cancel after approval but before the claim creates no key", async (t) => {
+  let release, reached;
+  const statusReached = new Promise(resolve => { reached = resolve; });
+  const p = await provider(t, { onStatus: () => reached(), statusGate: new Promise(resolve => { release = resolve; }) });
+  const dir = tempDir(t);
+  const { call } = await connectServer(t, p, memoryVault(), dir);
+  const started = await call("connect");
+  await statusReached;
+  assert.equal((await call("cancel_connection", { attempt_id: started.data.attempt_id })).data.status, "canceled");
+  release();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(p.count("POST", `/project-connections/${CONNECTION}/key`), 0);
+  assert.equal((await call("connection_status", { attempt_id: started.data.attempt_id })).data.status, "canceled");
+  assert.equal(stateOf(dir)?.recovery, undefined);
+  assert.equal(p.count("POST", "/oauth2/revoke"), 1, "the setup token is still revoked");
 });
 
 test("denial and region requests end without a key claim", async (t) => {
