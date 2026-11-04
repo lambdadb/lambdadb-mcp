@@ -167,8 +167,12 @@ Secret Service or kernel keyutils, in a fresh entry per connection. Only
 non-secret metadata (endpoint, project, key ID, connection ID and the credential
 entry reference) is written to the state directory, readable only by the current
 user. A restarted server reloads the key without the LambdaDB CLI or another
-approval. Automatic storage has been verified on macOS Keychain; prefer the
-explicit configuration where another store is not yet verified.
+approval. Connect with a real browser approval has been verified on macOS
+Keychain. CI saves, reads from a fresh server process and removes a synthetic
+value in macOS Keychain, Windows Credential Manager, Linux Secret Service and
+kernel keyutils on GitHub-hosted runners. Those runners are not desktop
+sessions: a locked keyring, an SSH session without Secret Service and keyutils
+entries lost at reboot are not covered; use the explicit configuration there.
 
 Connect stops before requesting approval with `credential_store_unavailable` when
 no store can save and read back a value. If a key delivery is uncertain
@@ -633,6 +637,8 @@ budgets, server errors, native/legacy configurations and contradictory inputs.
 Connect tests use a loopback provider and an in-memory credential store to cover
 prompt approval links, the empty key claim, token revocation, restart, pending
 reuse, cancellation, denial, region requests, store failure and recovery.
+`npm run test:native` with `LAMBDADB_TEST_NATIVE_CREDENTIALS=1` repeats the
+store round trip with the real OS credential store and a fresh server process.
 They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real

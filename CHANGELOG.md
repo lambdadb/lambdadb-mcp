@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Check each OS credential store Connect supports in CI: a synthetic value is
+  saved, served to a fresh server process and removed in macOS Keychain, Windows
+  Credential Manager, Linux Secret Service and kernel keyutils on GitHub-hosted
+  runners. `npm run test:native` runs the same opt-in check locally.
 - Add LambdaDB Connect for configurations without a project key. The server
   starts disconnected and adds `lambdadb_connect`, `lambdadb_connection_status`
   and `lambdadb_cancel_connection`: Connect returns a verification link and user
