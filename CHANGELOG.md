@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.0] - 2026-11-04
+
 - Check each OS credential store Connect supports in CI: a synthetic value is
   saved, served to a fresh server process and removed in macOS Keychain, Windows
   Credential Manager, Linux Secret Service and kernel keyutils on GitHub-hosted
