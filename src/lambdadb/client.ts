@@ -1,8 +1,8 @@
 import { LambdaDBClient } from "@functional-systems/lambdadb";
 
-import type { EnvConfig } from "../config/env.js";
+import type { ProjectEnv } from "../config/env.js";
 
-export function createLambdaDBClient(config: EnvConfig): LambdaDBClient {
+export function createLambdaDBClient(config: ProjectEnv): LambdaDBClient {
   return new LambdaDBClient({
     baseUrl: config.baseUrl,
     projectName: config.projectName,

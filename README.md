@@ -5,7 +5,8 @@ MCP server for LambdaDB using the official TypeScript MCP SDK and the official L
 ## Scope
 
 - Directly calls the LambdaDB data plane
-- Uses a single project-scoped API key from environment variables
+- Uses a single project-scoped API key, from environment variables or saved by
+  LambdaDB Connect after browser approval
 - Defaults to read-only tools
 - Optionally exposes write tools via an environment flag
 
@@ -94,12 +95,17 @@ MCP client waits for protocol input. See the [MCP transport specification](https
 src/
 ├─ config/
 │  └─ env.ts
+├─ connect/
+│  ├─ manager.ts
+│  ├─ oauth.ts
+│  └─ store.ts
 ├─ lambdadb/
 │  ├─ client.ts
 │  └─ errors.ts
 ├─ server/
 │  └─ createServer.ts
 ├─ tools/
+│  ├─ connect.ts
 │  ├─ index.ts
 │  ├─ shared.ts
 │  ├─ read.ts
@@ -124,6 +130,54 @@ tool descriptions advise.
 The server ignores the LambdaDB SDK's `LAMBDADB_DEBUG` variable. That logger
 writes requests, including the API key header, to stdout, which is the MCP
 transport.
+
+## Connect without a key
+
+When none of `LAMBDADB_BASE_URL`, `LAMBDADB_PROJECT_NAME` and
+`LAMBDADB_PROJECT_API_KEY` is set, the server starts disconnected and adds three
+tools. Setting any of them keeps the explicit configuration above, which then
+requires all three, and adds no Connect tools.
+
+- `lambdadb_connect` returns promptly with `verification_uri`, `user_code` and
+  `attempt_id`. The user opens the link, signs in to LambdaDB and approves one
+  project; this process polls in the background (OAuth Device Authorization),
+  claims one project key, saves it in the OS credential store and revokes the
+  setup token. Calling it while an attempt is pending returns that attempt.
+  Connecting again later switches the saved project after approval; the previous
+  key stays on the server until revoked in Console.
+- `lambdadb_connection_status` reports an attempt (`pending`, `issuing`,
+  `connected`, `region_requested`, `canceled`, `expired` or `failed`) and the
+  saved connection. Without `attempt_id` it reports only the saved connection.
+- `lambdadb_cancel_connection` stops a pending attempt. A key claim already in
+  progress cannot be canceled.
+
+Until a project is connected, data tools return `not_connected`. Tool results
+never contain the project key, access token or device code, and Connect takes no
+account or project administration inputs.
+
+```bash
+# Optional; defaults shown.
+LAMBDADB_API_URL=https://api.lambdadb.ai   # LambdaDB account API origin
+LAMBDADB_MCP_INSTANCE=default              # separate connections per configuration
+LAMBDADB_MCP_STATE_DIR=~/.config/lambdadb-mcp  # $XDG_CONFIG_HOME/lambdadb-mcp if set; %APPDATA%\lambdadb-mcp on Windows
+```
+
+The key is stored in macOS Keychain, Windows Credential Manager, or Linux
+Secret Service or kernel keyutils, in a fresh entry per connection. Only
+non-secret metadata (endpoint, project, key ID, connection ID and the credential
+entry reference) is written to the state directory, readable only by the current
+user. A restarted server reloads the key without the LambdaDB CLI or another
+approval. Automatic storage has been verified on macOS Keychain; prefer the
+explicit configuration where another store is not yet verified.
+
+Connect stops before requesting approval with `credential_store_unavailable` when
+no store can save and read back a value. If a key delivery is uncertain
+(`issuance_unconfirmed`) or a delivered key cannot be saved
+(`credential_store_failed`), nothing is reported as connected, and the next
+Connect recovers the same project instead of issuing an unrelated key. Removing
+local state never revokes a server key; manage keys named
+`lambdadb-connection-*` in Console. Servers that do not offer Connect yet return
+`connect_not_offered`; use the explicit configuration with a Console key.
 
 ## Available Tools
 
@@ -157,6 +211,9 @@ Optional write tools:
 
 All mutation tools require `LAMBDADB_MCP_ENABLE_WRITE_TOOLS=true`; authorization
 is still required for the requested operation.
+
+Without a configured key, `lambdadb_connect`, `lambdadb_connection_status` and
+`lambdadb_cancel_connection` are added (see [Connect without a key](#connect-without-a-key)).
 
 ### Version and mutation workflows
 
@@ -573,6 +630,9 @@ local bounds/UTF-8 rejection, Cohere models without criteria, score envelopes,
 skipped/fallback results and metadata downloads. Embedding tests cover OpenAI/Cohere
 `sourceField` and `sources` forms, stored metadata, and the server-managed `id` field. Bayesian tests cover untouched free-form requests, candidate
 budgets, server errors, native/legacy configurations and contradictory inputs.
+Connect tests use a loopback provider and an in-memory credential store to cover
+prompt approval links, the empty key claim, token revocation, restart, pending
+reuse, cancellation, denial, region requests, store failure and recovery.
 They do not require credentials
 or create remote collections. `test:package` additionally installs the actual
 tarball in a clean consumer directory and repeats the tool contracts over real
@@ -763,7 +823,7 @@ The existing source-checkout launcher remains available as
 ## Development Notes
 
 - This repo currently assumes `stdio` transport first for local MCP clients.
-- The server is scoped to one configured LambdaDB project per process.
+- The server is scoped to one configured or connected LambdaDB project per process.
 - Write tools are intentionally disabled by default.
 - `npm run inspect` is the fastest way to validate tool registration, schemas, and live LambdaDB responses during development.
 

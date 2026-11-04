@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import type { EnvConfig } from "../config/env.js";
 import { registerReadTools } from "./read.js";
+import type { ToolContext } from "./shared.js";
 import { registerVersioningReadTools, registerVersioningWriteTools } from "./versioning.js";
 import { registerWriteTools } from "./write.js";
 
-export function registerTools(server: McpServer, config: EnvConfig): void {
+export function registerTools(server: McpServer, config: ToolContext): void {
   registerReadTools(server, config);
   registerVersioningReadTools(server, config);
 

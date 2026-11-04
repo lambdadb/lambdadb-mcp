@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { EnvConfig } from "../config/env.js";
 import { branchRefSchema, jsonResult, nameSchema, tagRefSchema, withLambdaDB } from "./shared.js";
+import type { ToolContext } from "./shared.js";
 
 const branchSourceSchema = branchRefSchema.extend({
   asOf: z.number().int().min(1_000_000_000_000, "asOf must be Unix epoch milliseconds, not seconds.").optional()
@@ -15,7 +15,7 @@ const existingName = (kind: "branch" | "tag" | "alias") => nameSchema.describe(
 );
 const newName = (kind: string) => nameSchema.describe(`New ${kind} name: 3–52 letters, digits, underscores, or hyphens.`);
 
-export function registerVersioningReadTools(server: McpServer, config: EnvConfig): void {
+export function registerVersioningReadTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_list_branches",
     {
@@ -65,7 +65,7 @@ export function registerVersioningReadTools(server: McpServer, config: EnvConfig
   );
 }
 
-export function registerVersioningWriteTools(server: McpServer, config: EnvConfig): void {
+export function registerVersioningWriteTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_create_branch",
     {

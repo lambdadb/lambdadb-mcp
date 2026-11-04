@@ -2,9 +2,26 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { EnvConfig } from "../config/env.js";
+import { ConnectionManager } from "../connect/manager.js";
+import { identity, nativeVault, stateFile, type Vault } from "../connect/store.js";
+import { registerConnectTools } from "../tools/connect.js";
 import { registerTools } from "../tools/index.js";
+import type { ToolContext } from "../tools/shared.js";
 
-export function createServer(config: EnvConfig): McpServer {
+/** `vault` replaces the OS credential store in tests. */
+export function createServer(config: EnvConfig, options: { vault?: Vault } = {}): McpServer {
+  const connection = config.mode === "connect"
+    ? new ConnectionManager({
+      apiUrl: config.apiUrl,
+      file: stateFile(config.stateDir, config.apiUrl, config.instance),
+      vault: options.vault ?? nativeVault(`ai.lambdadb.mcp.v1:${identity(config.apiUrl, config.instance)}`)
+    })
+    : undefined;
+  const explicit = config.mode === "explicit" ? config : undefined;
+  const context: ToolContext = {
+    enableWriteTools: config.enableWriteTools,
+    project: explicit ? async () => explicit : () => connection!.project()
+  };
   const server = new McpServer(
     {
       name: "lambdadb-mcp",
@@ -12,7 +29,10 @@ export function createServer(config: EnvConfig): McpServer {
     },
     {
       instructions:
-        "This connection is pinned to one configured LambdaDB project; CLI defaults may target another project. " +
+        (connection
+          ? "This server uses one LambdaDB project connected through browser approval; CLI defaults may target another project. " +
+            "If a tool reports not_connected, ask the user before calling lambdadb_connect, show its verification_uri and user_code, then check lambdadb_connection_status. Never ask the user to paste a key into the conversation. "
+          : "This connection is pinned to one configured LambdaDB project; CLI defaults may target another project. ") +
         (config.enableWriteTools
           ? "Write tools are enabled, but mutations still require the user's authorization. "
           : "Only read tools are enabled. ") +
@@ -27,7 +47,15 @@ export function createServer(config: EnvConfig): McpServer {
     }
   );
 
-  registerTools(server, config);
+  registerTools(server, context);
+  if (connection) {
+    registerConnectTools(server, connection);
+    const closed = server.server.onclose;
+    server.server.onclose = () => {
+      connection.close();
+      closed?.();
+    };
+  }
 
   return server;
 }

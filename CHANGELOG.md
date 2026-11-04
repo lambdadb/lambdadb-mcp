@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add LambdaDB Connect for configurations without a project key. The server
+  starts disconnected and adds `lambdadb_connect`, `lambdadb_connection_status`
+  and `lambdadb_cancel_connection`: Connect returns a verification link and user
+  code, polls OAuth Device Authorization as the public client `lambdadb-mcp`,
+  claims one project key, saves it in the OS credential store and revokes the
+  setup token. Saved connections survive restarts; data tools report
+  `not_connected` until a project is connected. Uncertain or unsaved deliveries
+  keep a recovery reference for the same project. Explicit
+  `LAMBDADB_BASE_URL`/`LAMBDADB_PROJECT_NAME`/`LAMBDADB_PROJECT_API_KEY`
+  configuration is unchanged; starting with none of them no longer fails.
+  Adds the `@napi-rs/keyring` dependency.
+
 ## [0.3.0] - 2026-10-31
 
 - Read the deployed live smoke's project API key from the GitHub Environment
