@@ -8,8 +8,8 @@ import { Analyzer } from "@functional-systems/lambdadb/models";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { EnvConfig } from "../config/env.js";
 import { jsonResult, nameSchema, partitionFilterSchema, withLambdaDB, writeBranchSchema } from "./shared.js";
+import type { ToolContext } from "./shared.js";
 
 const tagsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9_.-]{1,63}$/, "Tag keys use 1–63 letters, digits, dots, underscores, or hyphens."),
@@ -20,7 +20,7 @@ const docsSchema = z.array(z.record(z.string(), z.any())).min(1);
 // Partial updates must name the stored document; validate that before any HTTP request.
 const patchesSchema = z.array(z.looseObject({ id: z.string().min(1) })).min(1);
 
-export function registerWriteTools(server: McpServer, config: EnvConfig): void {
+export function registerWriteTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_create_collection",
     {

@@ -5,7 +5,6 @@ import type {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { EnvConfig } from "../config/env.js";
 import {
   fieldsSchema,
   jsonResult,
@@ -15,6 +14,7 @@ import {
   readRefSchema,
   withLambdaDB
 } from "./shared.js";
+import type { ToolContext } from "./shared.js";
 
 const facetsSchema = z.record(z.string(), z.strictObject({
   size: z.number().int().min(1).max(100).nullable().optional()
@@ -55,7 +55,7 @@ const rerankSchema = z.discriminatedUnion("provider", [
 const includeVectorsSchema = z.boolean().optional()
   .describe("Include stored vector values in returned documents; default false because vectors make responses large.");
 
-export function registerReadTools(server: McpServer, config: EnvConfig): void {
+export function registerReadTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_list_collections",
     {

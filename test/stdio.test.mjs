@@ -33,6 +33,12 @@ for (const missing of Object.keys(configured)) {
     assert.ok(!h.output().stderr.includes('synthetic-secret'));
   });
 }
+test('a non-HTTPS Connect API origin fails closed', { timeout: 10000 }, async t => {
+  const h = start(t, { LAMBDADB_API_URL: 'http://api.example.com' });
+  assert.equal((await h.closed)[0], 1);
+  assert.equal(h.output().stdout, '');
+  assert.match(h.output().stderr, /LAMBDADB_API_URL must be an HTTPS origin/);
+});
 test('invalid write opt-in fails closed', { timeout: 10000 }, async t => {
   const h = start(t, { ...configured, LAMBDADB_MCP_ENABLE_WRITE_TOOLS: 'invalid' });
   assert.equal((await h.closed)[0], 1);
@@ -101,9 +107,19 @@ for (const debug of ['true', 'false']) {
 
 if (process.env.MCP_TEST_CWD) {
   test('npm exec resolves the installed bin without a source checkout or network', { timeout: 10000 }, async t => {
-    const h = start(t, {}, true);
-    assert.equal((await h.closed)[0], 1);
-    assert.equal(h.output().stdout, '');
-    assert.match(h.output().stderr, /Missing required environment variable: LAMBDADB_BASE_URL/);
+    // Without project variables the server starts disconnected for LambdaDB Connect.
+    // No project variables; npm's own update notice must not count as server output.
+    const h = start(t, { npm_config_update_notifier: 'false' }, true);
+    h.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'package-test', version: '1' },
+    } }) + '\n');
+    await new Promise((resolve, reject) => {
+      h.child.once('error', reject);
+      h.child.stdout.on('data', () => { if (h.output().stdout.includes('\n')) resolve(); });
+    });
+    h.child.stdin.end();
+    assert.equal((await h.closed)[0], 0);
+    assert.equal(JSON.parse(h.output().stdout.trim()).result.serverInfo.name, 'lambdadb-mcp');
+    assert.equal(h.output().stderr, '');
   });
 }

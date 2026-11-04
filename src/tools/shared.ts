@@ -1,7 +1,7 @@
 import type { LambdaDBClient, ReadRef } from "@functional-systems/lambdadb";
 import { z } from "zod";
 
-import type { EnvConfig } from "../config/env.js";
+import type { ProjectEnv } from "../config/env.js";
 import { createLambdaDBClient } from "../lambdadb/client.js";
 import { formatLambdaDBError } from "../lambdadb/errors.js";
 
@@ -36,10 +36,18 @@ export function readOptions(ref: ReadRef | undefined, consistentRead: boolean | 
   return { ref, consistentRead };
 }
 
+/** What data tools need: the write opt-in and the current project credentials. */
+export type ToolContext = {
+  enableWriteTools: boolean;
+  /** Throws not_connected when LambdaDB Connect has no saved project. */
+  project(): Promise<ProjectEnv>;
+};
+
 // Run one SDK call per tool invocation and surface any failure as a plain tool error.
-export async function withLambdaDB<T>(config: EnvConfig, run: (client: LambdaDBClient) => Promise<T>): Promise<T> {
+export async function withLambdaDB<T>(context: ToolContext, run: (client: LambdaDBClient) => Promise<T>): Promise<T> {
+  const project = await context.project();
   try {
-    return await run(createLambdaDBClient(config));
+    return await run(createLambdaDBClient(project));
   } catch (error) {
     throw new Error(formatLambdaDBError(error));
   }
