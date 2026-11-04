@@ -40,13 +40,13 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-MCP 0.3.0 pins LambdaDB SDK `0.11.1`: Cohere native embedding and reranking,
+MCP 0.4.0 pins LambdaDB SDK `0.11.1`: Cohere native embedding and reranking,
 ordered embedding `sources`, `knn.queryInputs`, the server-managed `id` field and
 1000-result Query/Fetch/List limits. Vector dimensions must be 64 to 4096 and
 similarity cosine or euclidean. Releases are trunk-based on `main`, which carries
 the last released version; CI derives development versions from tags (see
 [RELEASING.md](RELEASING.md)). Existing direct MCP installations need the new MCP
-version and an agent restart. CLI 0.1.7 pins MCP 0.2.0.
+version and an agent restart. CLI 0.2.0 pins MCP 0.3.0.
 
 This checkout pins MCP SDK `1.32.2` and requires Zod `^4.6.7`, with patched
 transitive dependencies in the lockfile. It replaces the query tool's top-level
@@ -60,7 +60,7 @@ those features to this stdio-only server. See the
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.3.0
+npx --yes @functional-systems/lambdadb-mcp@0.4.0
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
