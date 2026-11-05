@@ -88,7 +88,7 @@ export function registerVersioningWriteTools(server: McpServer, config: ToolCont
     "lambdadb_create_tag",
     {
       title: "Create Tag",
-      description: "Pin committed state as an immutable read-only tag. Omitted source uses main; source may be a branch (optionally asOf) or tag, never an alias. Acceptance of a write does not guarantee its inclusion. Empty or unavailable snapshots fail. Route readers to the tag with lambdadb_create_alias or lambdadb_retarget_alias.",
+      description: "Pin committed state as an immutable read-only tag. Omitted source uses main; source may be a branch (optionally asOf) or tag, never an alias. Empty or unavailable snapshots fail. Route readers to the tag with lambdadb_create_alias or lambdadb_retarget_alias.",
       annotations: { destructiveHint: false, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,

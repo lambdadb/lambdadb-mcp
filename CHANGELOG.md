@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Write results state what happened and name the read-back step: document
+  upserts, updates and deletes end with the `lambdadb_fetch_docs` call that uses
+  `consistentRead` on the written branch, and a bulk import says that its
+  documents become visible after indexing completes. Collection creation and
+  updates report plainly. `lambdadb_list_collections` names the project in its
+  result title. Response payloads are unchanged.
+- Server instructions and tool descriptions state one rule for reading writes
+  back, to use `consistentRead` on the branch, with bulk imports appearing after
+  indexing, instead of repeating readiness caveats in each tool. The
+  `consistentRead` parameter description on query and fetch is shortened to that
+  rule.
+
 ## [0.4.0] - 2026-11-04
 
 - Check each OS credential store Connect supports in CI: a synthetic value is

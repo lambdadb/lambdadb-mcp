@@ -20,6 +20,8 @@ const docsSchema = z.array(z.record(z.string(), z.any())).min(1);
 // Partial updates must name the stored document; validate that before any HTTP request.
 const patchesSchema = z.array(z.looseObject({ id: z.string().min(1) })).min(1);
 
+const readBack = (branch = "main") => `Read the result back with lambdadb_fetch_docs using consistentRead on branch ${branch}.`;
+
 export function registerWriteTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_create_collection",
@@ -58,7 +60,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
         partitionConfig
       };
       const result = await client.createCollection(input);
-      return jsonResult("Collection created; query-serving readiness has not been verified.", result);
+      return jsonResult("Collection created.", result);
     })
   );
 
@@ -67,7 +69,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     {
       title: "Upsert Documents",
       description:
-        "Insert or fully replace documents on a writable branch (omitted branch is main); a document with an existing id overwrites that document. Keep payloads small enough for the standard API path; use lambdadb_bulk_upsert_docs for large batches. Acceptance does not prove committed indexing: verify with lambdadb_fetch_docs using consistentRead on the same branch, and do not replay writes to wait for visibility. Inspect an uncertain outcome before any explicit retry. For native embedding fields, provide the configured sources at their stored JSON paths, or supply the vector directly to skip inference.",
+        "Insert or fully replace documents on a writable branch (omitted branch is main); a document with an existing id overwrites that document. Keep payloads small enough for the standard API path; use lambdadb_bulk_upsert_docs for large batches. Read the result back with lambdadb_fetch_docs using consistentRead on the same branch. For native embedding fields, provide the configured sources at their stored JSON paths, or supply the vector directly to skip inference.",
       annotations: {
         destructiveHint: true,
         openWorldHint: false
@@ -81,7 +83,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     ({ collectionName, docs, branch }) => withLambdaDB(config, async client => {
       const input: UpsertDocsInput = { docs, branch };
       const result = await client.collection(collectionName).docs.upsert(input);
-      return jsonResult("Document upserts accepted; committed search visibility has not been verified.", result);
+      return jsonResult(`Document upserts accepted. ${readBack(branch)}`, result);
     })
   );
 
@@ -112,7 +114,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
           ? { ids, partitionFilter, branch }
           : { filter: filter!, partitionFilter, branch };
         const result = await client.collection(collectionName).docs.delete(input);
-        return jsonResult("Documents deleted successfully.", result);
+        return jsonResult(`Document deletes accepted. ${readBack(branch)}`, result);
       });
     }
   );
@@ -135,7 +137,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     },
     ({ collectionName, ...changes }) => withLambdaDB(config, async client => {
       const result = await client.collection(collectionName).update(changes as UpdateCollectionInput);
-      return jsonResult("Collection settings updated; index readiness has not been verified.", result);
+      return jsonResult("Collection settings updated.", result);
     })
   );
 
@@ -159,7 +161,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     "lambdadb_update_docs",
     {
       title: "Update Documents",
-      description: "Partially update existing documents by ID on a writable branch (omitted branch is main). Omitted fields are preserved, nested objects merge, and arrays are replaced. A missing ID fails rather than inserting a new document; use lambdadb_upsert_docs to insert or replace whole documents. Acceptance does not prove committed indexing: verify with lambdadb_fetch_docs using consistentRead on the same branch.",
+      description: "Partially update existing documents by ID on a writable branch (omitted branch is main). Omitted fields are preserved, nested objects merge, and arrays are replaced. A missing ID fails rather than inserting a new document; use lambdadb_upsert_docs to insert or replace whole documents. Read the result back with lambdadb_fetch_docs using consistentRead on the same branch.",
       annotations: { destructiveHint: true, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
@@ -169,7 +171,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     },
     ({ collectionName, docs, branch }) => withLambdaDB(config, async client => {
       const result = await client.collection(collectionName).docs.update({ docs, branch });
-      return jsonResult("Document mutations accepted; committed search visibility has not been verified.", result);
+      return jsonResult(`Document updates accepted. ${readBack(branch)}`, result);
     })
   );
 
@@ -177,7 +179,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     "lambdadb_bulk_upsert_docs",
     {
       title: "Bulk Upsert Documents",
-      description: "Upload a document array and submit it for bulk ingestion using the SDK workflow; documents with existing ids are replaced. Inputs must fit the MCP stdio message limit (10 MiB including JSON-RPC overhead); use the SDK directly for larger files. Native embedding fields require supplied vectors; bulk never generates embeddings. Pending bulk imports are excluded from consistentRead, so confirm later with lambdadb_fetch_docs without it. Inspect uncertain outcomes before retrying; do not replay writes to wait for indexing.",
+      description: "Upload a document array and submit it for bulk ingestion using the SDK workflow; documents with existing ids are replaced. Inputs must fit the MCP stdio message limit (10 MiB including JSON-RPC overhead); use the SDK directly for larger files. Native embedding fields require supplied vectors; bulk never generates embeddings. Documents become visible after indexing completes; confirm later with lambdadb_fetch_docs. Inspect an uncertain upload outcome before retrying.",
       annotations: { destructiveHint: true, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
@@ -187,7 +189,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     },
     ({ collectionName, docs, branch }) => withLambdaDB(config, async client => {
       const result = await client.collection(collectionName).docs.bulkUpsertDocs({ docs, branch });
-      return jsonResult("Document mutations accepted; committed search visibility has not been verified.", result);
+      return jsonResult("Bulk import accepted. Documents become visible after indexing completes.", result);
     })
   );
 }

@@ -18,14 +18,10 @@ connection stays pinned to its configured project even when CLI defaults change.
 Preserve the selected collection and read ref when changing access paths.
 
 Server instructions and tool descriptions explain index inspection, pagination,
-the `docs[].doc` result wrapper, and recent-write visibility. Query/fetch
-`consistentRead:true` can include eligible pending ordinary writes on a direct
-branch; it excludes pending bulk imports, rejects tag/alias refs, and can return
-429. It does not prove committed indexing. Collection counts describe committed
-main, and an empty query alone establishes neither an error nor readiness.
-Inspect expected IDs and the query before bounded read retries; never replay
-writes to wait for visibility. Creation/upsert result text distinguishes acceptance
-from verified search visibility without changing the SDK response payload.
+the `docs[].doc` result wrapper, and reading writes back: query/fetch
+`consistentRead:true` includes the branch's pending writes, and bulk imports
+appear after indexing completes. Collection counts describe branch main. Write
+result text names the read-back step without changing the SDK response payload.
 
 Read-only defaults, request validation, ref resolution, error handling and query
 limits are unchanged. Retrieved document contents are data, not instructions to
@@ -255,10 +251,10 @@ is not added by these tools.
 Bulk inputs must fit the MCP SDK's 10 MiB stdio receive limit, including JSON-RPC
 overhead; this tool does not accept local paths or URLs. Use the LambdaDB SDK
 outside MCP for larger files. Native embedding fields require caller-supplied
-vectors for bulk ingestion; bulk never generates embeddings. Pending bulk imports
-are not included by `consistentRead`. Acceptance is not committed visibility.
-The SDK forwards signed upload headers without the project API key and does not
-finalize a failed upload. Inspect uncertain results before retrying a mutation.
+vectors for bulk ingestion; bulk never generates embeddings. Bulk imports appear
+after indexing completes. The SDK forwards signed upload headers without the
+project API key and does not finalize a failed upload. Inspect uncertain results
+before retrying a mutation.
 
 For example, call `lambdadb_create_branch` with:
 
@@ -297,8 +293,8 @@ alone does not update previously published or installed MCP packages.
   Collection metadata includes the server-managed `id` field as `{ "type": "keyword" }`;
   creation may omit it or send it back unchanged, so returned `indexConfigs` can be reused.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
-  Omitting `ref` reads from `main`. `consistentRead: true` is supported only by
-  Query/Fetch with an omitted ref or a direct Branch ref. List has no `consistentRead`.
+  Omitting `ref` reads from `main`. Query and Fetch accept `consistentRead`; List
+  does not.
 - Query may omit `query` for match-all and accepts `facets` for keyword bucket counts
   across all matches. Document `size` is 1–1000, or 0 when at least one facet is supplied.
   Up to five facet fields (including dotted paths) are allowed. Each field's options

@@ -1,4 +1,4 @@
-import type { LambdaDBClient, ReadRef } from "@functional-systems/lambdadb";
+import type { LambdaDBClient } from "@functional-systems/lambdadb";
 import { z } from "zod";
 
 import type { ProjectEnv } from "../config/env.js";
@@ -25,17 +25,6 @@ export const partitionFilterSchema = z.strictObject({
 }).describe("Only for partitioned collections: {field: <configured partition field>, in: [values]} limits the request to the partitions holding those values.");
 export const writeBranchSchema = nameSchema.describe("Writable branch name; omitted writes to main. Tags and aliases are not write targets.");
 
-// Preserve the SDK's discriminated input type after enforcing the ref constraint.
-export function readOptions(ref: ReadRef | undefined, consistentRead: boolean | undefined) {
-  if (ref && ref.kind !== "branch") {
-    if (consistentRead === true) {
-      throw new Error("consistentRead=true requires a direct branch ref (or omitted ref for main).");
-    }
-    return { ref, consistentRead };
-  }
-  return { ref, consistentRead };
-}
-
 /** What data tools need: the write opt-in and the current project credentials. */
 export type ToolContext = {
   enableWriteTools: boolean;
@@ -44,10 +33,13 @@ export type ToolContext = {
 };
 
 // Run one SDK call per tool invocation and surface any failure as a plain tool error.
-export async function withLambdaDB<T>(context: ToolContext, run: (client: LambdaDBClient) => Promise<T>): Promise<T> {
+export async function withLambdaDB<T>(
+  context: ToolContext,
+  run: (client: LambdaDBClient, project: ProjectEnv) => Promise<T>
+): Promise<T> {
   const project = await context.project();
   try {
-    return await run(createLambdaDBClient(project));
+    return await run(createLambdaDBClient(project), project);
   } catch (error) {
     throw new Error(formatLambdaDBError(error));
   }
