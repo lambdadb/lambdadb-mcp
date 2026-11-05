@@ -132,7 +132,9 @@ test("list/get accept current metadata and preserve millisecond timestamps", asy
     const wire = { ...collection, ...extra };
     const h = await harness(t, { respond: (req) => ({ body: req.url.pathname.endsWith("/items")
       ? { collection: wire } : { collections: [wire], nextPageToken: "next" } }) });
-    const listed = data(await h.call("list_collections", { size: 2, pageToken: "previous" }));
+    const listing = await h.call("list_collections", { size: 2, pageToken: "previous" });
+    assert.ok(listing.content[0].text.startsWith("Collections in project test.\n\n"), listing.content[0].text);
+    const listed = data(listing);
     const fetched = data(await h.call("get_collection", { collectionName: "items" }));
     assert.deepEqual(listed.collections[0], fetched.collection);
     assert.equal(listed.nextPageToken, "next");
@@ -263,11 +265,6 @@ test("facet-only and document+facet results preserve counts and all search optio
       assert.deepEqual(data(await h.call("query_collection", { collectionName: "items", ...input })), response);
       assert.deepEqual(h.requests.at(-1).body, input);
     }
-    for (const kind of ["tag", "alias"]) {
-      assert.equal((await h.call("query_collection", {
-        collectionName: "items", size, facets: { category: {} }, ref: { kind, name: "release" }, consistentRead: true
-      })).isError, true);
-    }
     assert.equal(h.requests.length, 4);
   }
 });
@@ -291,7 +288,7 @@ test("document+facet metadata survives docsUrl hydration without download creden
 });
 
 for (const [name, args] of [["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {
-  test(`${name} forwards refs and permits consistent reads only on direct branches`, async (t) => {
+  test(`${name} forwards refs and consistentRead`, async (t) => {
     const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
     for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
       const consistentRead = !ref || ref.kind === "branch";
@@ -299,11 +296,6 @@ for (const [name, args] of [["query_collection", { ...query, sort: [{ category: 
       assert.deepEqual(h.requests.at(-1).body.ref, ref);
       assert.equal(h.requests.at(-1).body.consistentRead, consistentRead);
       if (args.sort) assert.deepEqual(h.requests.at(-1).body.sort, args.sort);
-    }
-    for (const kind of ["tag", "alias"]) {
-      const result = await h.call(name, { collectionName: "items", ...args, ref: { kind, name: "release" }, consistentRead: true });
-      assert.equal(result.isError, true);
-      assert.match(result.content[0].text, /direct branch/);
     }
     assert.equal(h.requests.length, 4);
   });
@@ -870,7 +862,7 @@ test("collection settings and document patches retain explicit payloads; collect
     const patch = { docs: [{ id: "one", nested: { value: "changed" }, values: [] }], ...(branch ? { branch } : {}) };
     const result = await h.call("update_docs", { collectionName: "items", ...patch });
     data(result);
-    assert.match(result.content[0].text, /accepted; committed search visibility has not been verified/);
+    assert.ok(result.content[0].text.startsWith(`Document updates accepted. Read the result back with lambdadb_fetch_docs using consistentRead on branch ${branch ?? "main"}.\n\n`), result.content[0].text);
     assert.equal(h.requests.at(-1).method, "POST");
     assert.equal(h.requests.at(-1).url.pathname, "/projects/test/collections/items/docs/update");
     assert.deepEqual(h.requests.at(-1).body, patch);
@@ -931,7 +923,7 @@ test("bulk workflow forwards signed headers without credentials and finalizes on
       assert.equal(h.requests.length, 2, "Do not retry the upload or finalize a failed upload");
     } else {
       data(result);
-      assert.match(result.content[0].text, /accepted; committed search visibility has not been verified/);
+      assert.ok(result.content[0].text.startsWith("Bulk import accepted. Documents become visible after indexing completes.\n\n"), result.content[0].text);
       assert.equal(h.requests.length, 3);
       assert.equal(h.requests[2].method, "POST");
       assert.deepEqual(h.requests[2].body, { objectKey: "upload-one", type: "application/json", branch: "candidate" });

@@ -10,7 +10,6 @@ import {
   jsonResult,
   nameSchema,
   partitionFilterSchema,
-  readOptions,
   readRefSchema,
   withLambdaDB
 } from "./shared.js";
@@ -70,9 +69,9 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response.")
       })
     },
-    ({ size, pageToken }) => withLambdaDB(config, async client => {
+    ({ size, pageToken }) => withLambdaDB(config, async (client, project) => {
       const result = await client.listCollections({ size, pageToken });
-      return jsonResult("Collections listed successfully.", result);
+      return jsonResult(`Collections in project ${project.projectName}.`, result);
     })
   );
 
@@ -80,7 +79,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_get_collection",
     {
       title: "Get Collection",
-      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe committed main, not other refs or pending writes, and are not a query-readiness signal. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
+      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe branch main. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -100,7 +99,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     {
       title: "Query Collection",
       description:
-        "Search documents with full-text, vector, boolean, or hybrid queries and return ranked results. Call lambdadb_get_collection first to learn field names and index types. Omit query for a small match-all sample; use lambdadb_fetch_docs for known IDs and lambdadb_list_docs to scan without ranking. Results wrap document fields under docs[].doc and are not all matches; empty results alone do not prove an error or indexing delay. Optional Bayesian hybrid search, native reranking and keyword facets require a supporting server; facets require newly built keyword indexes. size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status.",
+        "Search documents with full-text, vector, boolean, or hybrid queries and return ranked results. Call lambdadb_get_collection first to learn field names and index types. Omit query for a small match-all sample; use lambdadb_fetch_docs for known IDs and lambdadb_list_docs to scan without ranking. Results wrap document fields under docs[].doc and are not all matches. Optional Bayesian hybrid search, native reranking and keyword facets require a supporting server; facets require newly built keyword indexes. size: 0 requires facets and forbids reranking. Reranking requires a scoring query and forbids sort; it does not enable vector/hybrid facets. Applied envelope score is an evaluation score, retrievalScore preserves search score, and rerank metadata reports status.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -119,9 +118,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe(
-          "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429. Do not change the default just because a query is empty."
-        ),
+        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing)."),
         includeVectors: includeVectorsSchema,
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
         sort: z.array(z.record(
@@ -162,18 +159,20 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
       fields,
       partitionFilter
     }) => withLambdaDB(config, async client => {
-      const input: QueryCollectionInput = {
+      // The SDK validates read options at request time.
+      const input = {
         query,
         facets,
         rerank,
         size,
         candidateSize,
-        ...readOptions(ref, consistentRead),
+        ref,
+        consistentRead,
         includeVectors,
         sort,
         fields,
         partitionFilter
-      };
+      } as QueryCollectionInput;
       const result = await client.collection(collectionName).query(input);
       return jsonResult("Collection query completed successfully.", result);
     })
@@ -183,7 +182,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_list_docs",
     {
       title: "List Documents",
-      description: "List documents at the selected ref with pagination; follow nextPageToken when needed. This operation has no consistentRead overlay. Use lambdadb_fetch_docs for known IDs or lambdadb_query_collection for indexed search and recent ordinary writes.",
+      description: "List documents at the selected ref with pagination; follow nextPageToken when needed. This operation has no consistentRead option. Use lambdadb_fetch_docs for known IDs or lambdadb_query_collection for indexed search and recent writes.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -219,7 +218,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_fetch_docs",
     {
       title: "Fetch Documents",
-      description: "Fetch known document IDs at the selected ref. Results wrap document fields under docs[].doc. Missing IDs are not necessarily errors: check the target/ref and, for known recent ordinary writes, consistentRead. Do not reinsert documents as a visibility check.",
+      description: "Fetch known document IDs at the selected ref. Results wrap document fields under docs[].doc. A missing ID is not an error: check the ref and, for a recent write, use consistentRead on its branch.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -228,9 +227,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         collectionName: nameSchema,
         ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Use fields to leave out large stored fields; every returned document is passed through in full."),
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe(
-          "Include eligible pending ordinary writes when true; requires a direct branch ref or omitted ref (main), never tag/alias. Does not include pending bulk imports or prove committed indexing; the overlay can return 429."
-        ),
+        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing)."),
         includeVectors: includeVectorsSchema,
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()
@@ -245,13 +242,15 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
       fields,
       partitionFilter
     }) => withLambdaDB(config, async client => {
-      const input: FetchDocsInput = {
+      // The SDK validates read options at request time.
+      const input = {
         ids,
-        ...readOptions(ref, consistentRead),
+        ref,
+        consistentRead,
         includeVectors,
         fields,
         partitionFilter
-      };
+      } as FetchDocsInput;
       const result = await client.collection(collectionName).docs.fetch(input);
       return jsonResult("Documents fetched successfully.", result);
     })
