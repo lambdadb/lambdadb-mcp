@@ -34,7 +34,7 @@ const rerankOptions = {
   onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
     .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures.")
 };
-// SDK 0.11.1 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
+// SDK 0.12.0 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
 const rerankSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("typesafe"),
@@ -118,7 +118,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing)."),
+        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing). Allowed with an omitted ref, a branch ref, or an alias that targets a branch; a tag ref or an alias that targets a tag rejects true."),
         includeVectors: includeVectorsSchema,
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
         sort: z.array(z.record(
@@ -218,7 +218,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_fetch_docs",
     {
       title: "Fetch Documents",
-      description: "Fetch known document IDs at the selected ref. Results wrap document fields under docs[].doc. A missing ID is not an error: check the ref and, for a recent write, use consistentRead on its branch.",
+      description: "Fetch known document IDs at the selected ref. Results wrap document fields under docs[].doc. A missing ID is not an error: check the ref and, for a recent write, use consistentRead on its branch or an alias that targets that branch.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -227,7 +227,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         collectionName: nameSchema,
         ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Use fields to leave out large stored fields; every returned document is passed through in full."),
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing)."),
+        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing). Allowed with an omitted ref, a branch ref, or an alias that targets a branch; a tag ref or an alias that targets a tag rejects true."),
         includeVectors: includeVectorsSchema,
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()

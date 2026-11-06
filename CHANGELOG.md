@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Pin the LambdaDB SDK to 0.12.0, aligned with the public OpenAPI contract
+  `reference/api/openapi.json` in lambdadb/docs at commit
+  `1714009a2659a18b26cb68193dd7a071fd6efb42`. Index fields accept an optional
+  `description` of at most 255 characters, including nested `objectIndexConfigs`
+  children; `lambdadb_create_collection` and `lambdadb_update_collection` publish
+  it in their `indexConfigs` schemas, and `lambdadb_get_collection` returns it
+  when set. Creation sends a description only when given; an update sends `""`
+  to clear and `null` to keep the stored one, and a description is the only
+  setting of an existing field that an update may change. The server-managed
+  `id` field rejects one.
+- `consistentRead: true` is forwarded for an alias ref as well as a branch ref;
+  the server resolves the alias, and an alias that targets a tag fails with
+  HTTP 400. Only a tag ref is rejected before any request. Server instructions
+  and the query/fetch descriptions state this rule.
 - Write results state what happened and name the read-back step: document
   upserts, updates and deletes end with the `lambdadb_fetch_docs` call that uses
   `consistentRead` on the written branch, and a bulk import says that its

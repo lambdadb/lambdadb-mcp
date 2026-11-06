@@ -22,6 +22,18 @@ const patchesSchema = z.array(z.looseObject({ id: z.string().min(1) })).min(1);
 
 const readBack = (branch = "main") => `Read the result back with lambdadb_fetch_docs using consistentRead on branch ${branch}.`;
 
+// FieldDescription in the public OpenAPI contract: at most 255 characters, nullable on update.
+// Other field settings stay free-form; the SDK and server validate them.
+const createFieldDescription = z.string().max(255)
+  .describe("Optional human-readable field description (max 255 chars); it never affects indexing. Omit it to send none. The server-managed id field rejects one.");
+const updateFieldDescription = z.string().max(255).nullable()
+  .describe("Field description (max 255 chars): a string sets it, an empty string clears it, and omitted or null keeps the stored one. This is the only setting of an existing field that may change; the server-managed id field rejects one.");
+const indexConfigsSchema = (description: z.ZodType) => z.record(z.string(), z.looseObject({
+  description: description.optional(),
+  objectIndexConfigs: z.record(z.string(), z.looseObject({ description: description.optional() })).optional()
+    .describe("Nested field configurations of an object field, in the same shape; each child may carry its own description.")
+}));
+
 export function registerWriteTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_create_collection",
@@ -34,10 +46,10 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
       },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        indexConfigs: z.record(z.string(), z.any()).refine(
+        indexConfigs: indexConfigsSchema(createFieldDescription).refine(
           (value) => Object.keys(value).length > 0,
           "indexConfigs must contain at least one field."
-        ).describe(`Field configurations validated by the SDK/server. Native embedding vectors: {type: 'vector', embedding: {provider: 'openai'|'cohere', model, sourceField or sources, dimensions?, similarity?}}. Use exactly one non-null sourceField (legacy single text path) or sources (1-16 ordered {field, type: 'text'|'image'} mappings; OpenAI requires exactly one text source, Cohere accepts text and image sources). Source paths may be unindexed stored paths. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity. Supplied dimensions must be integers from 64 to 4096; similarity supports only cosine or euclidean. Model-specific native dimensions and provider/model/source combinations are server-validated. The server-managed id field may be omitted or sent unchanged as {type: 'keyword'}. Text fields accept analyzers from these fixed lowercase presets (omitted uses standard; custom pipelines/options are unsupported; the keyword analyzer is distinct from the keyword field type): ${Object.values(Analyzer).join(", ")}.`),
+        ).describe(`Field configurations validated by the SDK/server; every field, including nested objectIndexConfigs children, accepts an optional description (max 255 chars). Native embedding vectors: {type: 'vector', embedding: {provider: 'openai'|'cohere', model, sourceField or sources, dimensions?, similarity?}}. Use exactly one non-null sourceField (legacy single text path) or sources (1-16 ordered {field, type: 'text'|'image'} mappings; OpenAI requires exactly one text source, Cohere accepts text and image sources). Source paths may be unindexed stored paths. Native embedding dimensions/similarity belong inside embedding, never at the field top level. Do not combine embedding with managedEmbedding: false. Legacy true is preserved; no provider/model or native embedding defaults are inferred. Caller-provided vectors retain top-level dimensions/similarity. Supplied dimensions must be integers from 64 to 4096; similarity supports only cosine or euclidean. Model-specific native dimensions and provider/model/source combinations are server-validated. The server-managed id field may be omitted or sent unchanged as {type: 'keyword'}. Text fields accept analyzers from these fixed lowercase presets (omitted uses standard; custom pipelines/options are unsupported; the keyword analyzer is distinct from the keyword field type): ${Object.values(Analyzer).join(", ")}.`),
         description: z.string().max(255).optional().describe("Human-readable collection description (max 255 chars)."),
         tags: tagsSchema.optional().describe("Up to five metadata key/value tags (keys [A-Za-z0-9_.-]{1,63}, values 1–127 chars without : # ,). These are not version Tags."),
         snapshotRetentionInDays: retentionSchema.optional().describe("Days of committed snapshot history to retain (1–31) for asOf branch sources and tag creation."),
@@ -53,7 +65,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     }) => withLambdaDB(config, async client => {
       const input: CreateCollectionInput = {
         collectionName,
-        indexConfigs,
+        indexConfigs: indexConfigs as CreateCollectionInput["indexConfigs"],
         description,
         tags,
         snapshotRetentionInDays,
@@ -123,13 +135,13 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     "lambdadb_update_collection",
     {
       title: "Update Collection",
-      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. Existing indexed fields cannot be redefined or removed; historical documents are not automatically backfilled. Lowering retention can shorten available history. Omitted or null values leave settings unchanged; use an empty description or empty tags object to clear those fields. Retention cannot be cleared. These metadata tags are not version Tags.",
+      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. Existing indexed fields cannot be removed, and only their description may change; historical documents are not automatically backfilled. Lowering retention can shorten available history. Omitted or null values leave settings unchanged; use an empty description or empty tags object to clear those fields. Retention cannot be cleared. These metadata tags are not version Tags.",
       annotations: { destructiveHint: true, openWorldHint: false },
       // The SDK rejects empty indexConfigs and inputs without a non-null field
       // before any HTTP request. The server treats null as unchanged.
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        indexConfigs: z.record(z.string(), z.any()).optional().describe("New fields to add, in the same shape as lambdadb_create_collection indexConfigs; existing fields cannot be changed or removed."),
+        indexConfigs: indexConfigsSchema(updateFieldDescription).optional().describe("Fields to add, in the same shape as lambdadb_create_collection indexConfigs, or existing fields sent unchanged except for a new description; other settings of existing fields cannot be changed and fields cannot be removed."),
         description: z.string().max(255).nullable().optional().describe("New description (max 255 chars); an empty string clears it. Null leaves it unchanged."),
         tags: tagsSchema.nullable().optional().describe("Replacement metadata tags (up to five); an empty object clears them. Null leaves them unchanged. These are not version Tags."),
         snapshotRetentionInDays: retentionSchema.nullable().optional().describe("Retention in days (1–31). Null leaves it unchanged; it cannot be cleared. Lowering it can shorten available asOf history.")
