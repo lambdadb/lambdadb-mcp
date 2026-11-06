@@ -37,7 +37,7 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-The current source pins LambdaDB SDK `0.12.0`: optional index field
+MCP 0.5.0 pins LambdaDB SDK `0.12.0`: optional index field
 `description`s, consistent reads through an alias, Cohere native embedding and
 reranking, ordered embedding `sources`, `knn.queryInputs`, the server-managed
 `id` field and 1000-result Query/Fetch/List limits. Vector dimensions must be
@@ -59,7 +59,7 @@ those features to this stdio-only server. See the
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.4.0
+npx --yes @functional-systems/lambdadb-mcp@0.5.0
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
