@@ -259,7 +259,7 @@ test("facet-only and document+facet results preserve counts and all search optio
     const h = await harness(t, { respond: () => ({ body: response }) });
     for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
       const input = { size, ...(size ? query : {}), facets: { category: { size: null }, "metadata.category": {} },
-        ...(ref ? { ref } : {}), consistentRead: !ref || ref.kind === "branch", includeVectors: true,
+        ...(ref ? { ref } : {}), consistentRead: ref?.kind !== "tag", includeVectors: true,
         sort: [{ category: "ASC" }], fields: { include: ["title"], exclude: ["hidden"] },
         partitionFilter: { field: "tenant", in: ["test"] } };
       assert.deepEqual(data(await h.call("query_collection", { collectionName: "items", ...input })), response);
@@ -288,15 +288,20 @@ test("document+facet metadata survives docsUrl hydration without download creden
 });
 
 for (const [name, args] of [["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {
-  test(`${name} forwards refs and consistentRead`, async (t) => {
+  test(`${name} forwards refs and consistentRead; only tag refs reject consistent reads locally`, async (t) => {
     const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
     for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
-      const consistentRead = !ref || ref.kind === "branch";
+      // The server resolves an alias; an alias that targets a tag fails there with HTTP 400.
+      const consistentRead = ref?.kind !== "tag";
       data(await h.call(name, { collectionName: "items", ...args, ...(ref ? { ref } : {}), consistentRead }));
       assert.deepEqual(h.requests.at(-1).body.ref, ref);
       assert.equal(h.requests.at(-1).body.consistentRead, consistentRead);
       if (args.sort) assert.deepEqual(h.requests.at(-1).body.sort, args.sort);
     }
+    assert.equal(h.requests.length, 4);
+    const tag = await h.call(name, { collectionName: "items", ...args, ref: { kind: "tag", name: "release" }, consistentRead: true });
+    assert.equal(tag.isError, true);
+    assert.match(tag.content[0].text, /consistentRead is supported only for Branch reads or an Alias that targets a Branch/);
     assert.equal(h.requests.length, 4);
   });
 }
@@ -846,6 +851,56 @@ test("invalid lifecycle selectors fail before HTTP and cannot fall back to main"
     assert.equal((await h.call(tool, { collectionName: "items", ...args })).isError, true, tool);
   }
   assert.equal(h.requests.length, 0);
+});
+
+test("index field descriptions pass create, update, schemas and collection reads unchanged", async t => {
+  const described = {
+    title: { type: "text", description: "Product title" },
+    category: { type: "keyword" },
+    metadata: { type: "object", description: "Free-form attributes", objectIndexConfigs: {
+      brand: { type: "keyword", description: "Manufacturer" }, sku: { type: "keyword" }
+    } }
+  };
+  const h = await harness(t, { write: true, respond: req => ({
+    status: req.method === "POST" ? 201 : 200,
+    body: { collection: req.method === "POST" ? created : { ...collection, indexConfigs: described } }
+  }) });
+  const tools = (await h.client.listTools()).tools;
+  for (const [name, nullable] of [["lambdadb_create_collection", false], ["lambdadb_update_collection", true]]) {
+    const field = tools.find(tool => tool.name === name).inputSchema.properties.indexConfigs.additionalProperties;
+    for (const schema of [field.properties.description, field.properties.objectIndexConfigs.additionalProperties.properties.description]) {
+      const string = nullable ? schema.anyOf.find(option => option.type === "string") : schema;
+      assert.equal(string.maxLength, 255);
+      assert.equal(nullable, Boolean(schema.anyOf?.some(option => option.type === "null")));
+    }
+  }
+  // Omitted descriptions stay off the wire; nested children travel unchanged.
+  data(await h.call("create_collection", { collectionName: "items", indexConfigs: described }));
+  assert.deepEqual(h.requests.at(-1).body.indexConfigs, described);
+  assert.equal(Object.hasOwn(h.requests.at(-1).body.indexConfigs.category, "description"), false);
+  assert.equal(Object.hasOwn(h.requests.at(-1).body.indexConfigs.metadata.objectIndexConfigs.sku, "description"), false);
+  // A description-only change keeps the field otherwise unchanged; null keeps and "" clears the stored value.
+  const changes = { title: { type: "text", description: "" }, category: { type: "keyword", description: null },
+    metadata: { type: "object", objectIndexConfigs: { brand: { type: "keyword", description: "" }, sku: { type: "keyword", description: null } } } };
+  data(await h.call("update_collection", { collectionName: "items", indexConfigs: changes }));
+  assert.equal(h.requests.at(-1).method, "PATCH");
+  assert.deepEqual(h.requests.at(-1).body, { indexConfigs: changes });
+  const fetched = data(await h.call("get_collection", { collectionName: "items" }));
+  assert.deepEqual(fetched.collection.indexConfigs, described);
+  const count = h.requests.length;
+  const long = "x".repeat(256);
+  for (const [name, indexConfigs] of [
+    ["create_collection", { title: { type: "text", description: long } }],
+    ["create_collection", { metadata: { type: "object", objectIndexConfigs: { brand: { type: "keyword", description: long } } } }],
+    ["create_collection", { title: { type: "text", description: null } }],
+    ["update_collection", { title: { type: "text", description: long } }],
+    ["update_collection", { metadata: { type: "object", objectIndexConfigs: { brand: { type: "keyword", description: long } } } }]
+  ]) {
+    const result = await h.call(name, { collectionName: "items", indexConfigs });
+    assert.equal(result.isError, true, `${name}: ${JSON.stringify(indexConfigs)}`);
+    assert.match(result.content[0].text, /description/);
+  }
+  assert.equal(h.requests.length, count);
 });
 
 test("collection settings and document patches retain explicit payloads; collection deletion is distinct", async t => {

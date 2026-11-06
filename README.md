@@ -19,7 +19,8 @@ Preserve the selected collection and read ref when changing access paths.
 
 Server instructions and tool descriptions explain index inspection, pagination,
 the `docs[].doc` result wrapper, and reading writes back: query/fetch
-`consistentRead:true` includes the branch's pending writes, and bulk imports
+`consistentRead:true` includes the branch's pending writes through a branch ref
+or an alias that targets a branch (tag reads reject it), and bulk imports
 appear after indexing completes. Collection counts describe branch main. Write
 result text names the read-back step without changing the SDK response payload.
 
@@ -36,13 +37,15 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-MCP 0.4.0 pins LambdaDB SDK `0.11.1`: Cohere native embedding and reranking,
-ordered embedding `sources`, `knn.queryInputs`, the server-managed `id` field and
-1000-result Query/Fetch/List limits. Vector dimensions must be 64 to 4096 and
-similarity cosine or euclidean. Releases are trunk-based on `main`, which carries
-the last released version; CI derives development versions from tags (see
-[RELEASING.md](RELEASING.md)). Existing direct MCP installations need the new MCP
-version and an agent restart. CLI 0.2.0 pins MCP 0.3.0.
+The current source pins LambdaDB SDK `0.12.0`: optional index field
+`description`s, consistent reads through an alias, Cohere native embedding and
+reranking, ordered embedding `sources`, `knn.queryInputs`, the server-managed
+`id` field and 1000-result Query/Fetch/List limits. Vector dimensions must be
+64 to 4096 and similarity cosine or euclidean. Releases are trunk-based on
+`main`, which carries the last released version; CI derives development
+versions from tags (see [RELEASING.md](RELEASING.md)). Existing direct MCP
+installations need the new MCP version and an agent restart. CLI 0.2.0 pins
+MCP 0.3.0.
 
 This checkout pins MCP SDK `1.32.2` and requires Zod `^4.6.7`, with patched
 transitive dependencies in the lockfile. It replaces the query tool's top-level
@@ -230,7 +233,7 @@ Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
 | `delete_branch`, `delete_tag`, `delete_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Deleting an alias does not delete its target. |
 | `update_docs` | `docs` with existing IDs and optional `branch`. Preserves omitted fields, merges nested objects and replaces arrays. Missing IDs fail rather than insert. |
 | `bulk_upsert_docs` | `docs` and optional `branch`. Runs the SDK's upload-URL, upload, and ingestion workflow. |
-| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`. Omitted or `null` values leave settings unchanged; use `description: ""` or `tags: {}` to clear those fields. Retention must be 1–31 and cannot be cleared. Index changes are additive; no automatic historical backfill. |
+| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`. Omitted or `null` values leave settings unchanged; use `description: ""` or `tags: {}` to clear those fields. Retention must be 1–31 and cannot be cleared. Index changes add fields or change an existing field's `description` only; no automatic historical backfill. |
 | `delete_collection` | Deletes the collection, including its data and refs. |
 
 `asOf` is an integer Unix epoch millisecond cutoff, not an ISO date string.
@@ -282,8 +285,8 @@ retry controls and Qdrant compatibility are not separate MCP tools.
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.11.1`, checked against
-the published package and [v0.11.1 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/CHANGELOG.md).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.12.0`, checked against
+the published package and [v0.12.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/CHANGELOG.md).
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -292,9 +295,17 @@ alone does not update previously published or installed MCP packages.
   The SDK validates individual index configurations and accepts HTTP 201 responses.
   Collection metadata includes the server-managed `id` field as `{ "type": "keyword" }`;
   creation may omit it or send it back unchanged, so returned `indexConfigs` can be reused.
+- Every index field, including nested `objectIndexConfigs` children, accepts an optional
+  `description` of at most 255 characters that never affects indexing. Creation sends it
+  only when given. An update may change only the description of an existing field: send
+  the field unchanged with a string to set it, `""` to clear it, or `null`/omitted to keep
+  it. Collection reads return `description` only when set. The server-managed `id` field
+  rejects a description.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
-  Omitting `ref` reads from `main`. Query and Fetch accept `consistentRead`; List
-  does not.
+  Omitting `ref` reads from `main`. Query and Fetch accept `consistentRead` with an
+  omitted ref, a branch ref, or an alias ref; the server resolves the alias, and an
+  alias that targets a tag fails with HTTP 400. A tag ref with `consistentRead: true`
+  is rejected before any request. List does not accept `consistentRead`.
 - Query may omit `query` for match-all and accepts `facets` for keyword bucket counts
   across all matches. Document `size` is 1–1000, or 0 when at least one facet is supplied.
   Up to five facet fields (including dotted paths) are allowed. Each field's options
@@ -494,7 +505,7 @@ with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
 server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
-that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/docs/native-embeddings.md).
+that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/docs/native-embeddings.md).
 
 <a id="optional-managed-reranking"></a>
 
@@ -503,7 +514,7 @@ that true flag. See the [native embedding contract](https://github.com/lambdadb/
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
 LambdaDB supplies provider credentials; only the existing project API key is needed.
-See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.11.1/docs/native-reranking.md).
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/docs/native-reranking.md).
 
 ```json
 {
@@ -628,7 +639,10 @@ document+facet, omitted/null/default bucket options, boundaries, invalid request
 and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,
 local bounds/UTF-8 rejection, Cohere models without criteria, score envelopes,
 skipped/fallback results and metadata downloads. Embedding tests cover OpenAI/Cohere
-`sourceField` and `sources` forms, stored metadata, and the server-managed `id` field. Bayesian tests cover untouched free-form requests, candidate
+`sourceField` and `sources` forms, stored metadata, and the server-managed `id` field.
+Field description tests cover the create/update JSON Schema, omitted, nested, empty
+and null descriptions on the wire, over-long rejection and collection reads; consistent
+reads are forwarded through branch and alias refs and rejected for tag refs. Bayesian tests cover untouched free-form requests, candidate
 budgets, server errors, native/legacy configurations and contradictory inputs.
 Connect tests use a loopback provider and an in-memory credential store to cover
 prompt approval links, the empty key claim, token revocation, restart, pending
