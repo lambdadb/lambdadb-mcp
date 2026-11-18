@@ -38,8 +38,9 @@ export function createServer(config: EnvConfig, options: { vault?: Vault } = {})
           : "Only read tools are enabled. ") +
         "Preserve the user's collection and branch/tag/alias; pass read refs explicitly. " +
         "Read workflow: lambdadb_list_collections, then lambdadb_get_collection for field names and index types, then lambdadb_query_collection; lambdadb_list_docs with size 1 shows a sample document. " +
+        "Each branch owns its index schema and a tag pins one: when reading a ref other than main, take field names and index types from lambdadb_get_branch, lambdadb_get_tag or lambdadb_get_alias. " +
         (config.enableWriteTools
-          ? "Write workflow: lambdadb_create_branch, write with branch set, verify with lambdadb_fetch_docs and consistentRead on that branch, pin with lambdadb_create_tag, then lambdadb_create_alias or lambdadb_retarget_alias. Confirm with the user before any delete or alias retarget. "
+          ? "Write workflow: lambdadb_create_branch, write with branch set, verify with lambdadb_fetch_docs and consistentRead on that branch, pin with lambdadb_create_tag, then lambdadb_create_alias or lambdadb_retarget_alias. Add index fields to a branch with lambdadb_update_branch; other branches keep their schemas. Confirm with the user before any delete or alias retarget. "
           : "") +
         "Inspect collection indexes before constructing a search. " +
         "To read a write back, use consistentRead on its branch or on an alias that targets that branch (tags reject it); bulk imports appear after indexing completes. " +

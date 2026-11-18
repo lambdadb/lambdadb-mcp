@@ -116,7 +116,7 @@ test("without a project key the server starts disconnected and data tools report
   const p = await provider(t);
   const { client, call } = await connectServer(t, p, memoryVault(), tempDir(t));
   const names = (await client.listTools()).tools.map(tool => tool.name);
-  assert.equal(names.length, 11);
+  assert.equal(names.length, 14);
   assert.ok(["lambdadb_connect", "lambdadb_connection_status", "lambdadb_cancel_connection"].every(name => names.includes(name)));
   assert.match(client.getInstructions(), /lambdadb_connect/);
   const read = await call("list_collections");

@@ -22,9 +22,8 @@ const collection = {
   numPartitions: 1, numDocs: 0, defaultBranchName: "main",
   snapshotRetentionInDays: 30, createdAt: timestamp, updatedAt: timestamp
 };
-const created = Object.fromEntries([
-  "collectionName", "description", "tags", "defaultBranchName", "snapshotRetentionInDays", "createdAt"
-].map((key) => [key, collection[key]]));
+// Public contract 1.3.0: createCollection returns the full collection shape.
+const created = collection;
 const docs = [{ collection: "items", doc: { id: "one", title: "Test" }, score: 1 }];
 const query = { query: { queryString: { query: "*:*" } } };
 const lexical = { queryString: { query: "title:restore" } };
@@ -98,7 +97,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.match(read.client.getInstructions(), /Only read tools are enabled/);
   assert.ok(!read.client.getInstructions().includes("test-secret"));
   const tools = (await read.client.listTools()).tools;
-  assert.equal(tools.length, 8);
+  assert.equal(tools.length, 11);
   assert.ok(tools.every((tool) => tool.annotations.readOnlyHint === true));
   assert.equal((await read.call("create_collection", { collectionName: "items", indexConfigs: collection.indexConfigs })).isError, true);
   assert.equal(read.requests.length, 0);
@@ -106,7 +105,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.match(write.client.getInstructions(), /Write tools are enabled/);
   assert.ok(!write.client.getInstructions().includes("test-secret"));
   const enabled = (await write.client.listTools()).tools;
-  assert.equal(enabled.length, 22);
+  assert.equal(enabled.length, 26);
   const create = enabled.find((tool) => tool.name === "lambdadb_create_collection");
   assert.ok(create.inputSchema.required.includes("indexConfigs"));
   const list = enabled.find((tool) => tool.name === "lambdadb_list_docs");
@@ -117,7 +116,7 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
 test("tool input schemas use object roots without Bedrock-rejected composition", async (t) => {
   const h = await harness(t, { write: true });
   const tools = (await h.client.listTools()).tools;
-  assert.equal(tools.length, 22);
+  assert.equal(tools.length, 26);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", tool.name);
     for (const keyword of ["allOf", "anyOf", "oneOf"]) {
@@ -171,7 +170,8 @@ test("create accepts HTTP 201 and sends metadata and retention", async (t) => {
     description: "Contract fixture", tags: { env: "test" }, snapshotRetentionInDays: 30,
     partitionConfig: { fieldName: "tenant", dataType: "keyword", numPartitions: 2 } };
   const result = data(await h.call("create_collection", input));
-  assert.deepEqual(result.collection, { ...created, createdAt: new Date(timestamp).toISOString() });
+  const iso = new Date(timestamp).toISOString();
+  assert.deepEqual(result.collection, { ...collection, createdAt: iso, updatedAt: iso });
   assert.equal(h.requests[0].method, "POST");
   assert.deepEqual(h.requests[0].body, input);
 });
@@ -454,7 +454,7 @@ test("SDK authentication failures return MCP tool errors and leave the server us
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /denied|unauthorized|authentication/i);
   assert.ok(!JSON.stringify(result).includes("test-secret"));
-  assert.equal((await h.client.listTools()).tools.length, 8);
+  assert.equal((await h.client.listTools()).tools.length, 11);
 });
 
 const rerank = { provider: "typesafe", model: "jev-1.13.0", queryText: "  Restore a collection  ", fields: ["title", "metadata.body"] };
@@ -763,16 +763,23 @@ test("native embedding sources and Cohere configs reach HTTP unchanged; stored m
   assert.equal(h.requests.length, accepted, "Invalid embedding sources must fail before HTTP");
 });
 
+// Public contract 1.3.0: every ref carries indexConfigs; branches and tags also carry numDocs and dataUpdatedAt.
+const refSchema = { title: { type: "text", description: "Product title" }, category: { type: "keyword" } };
 const branchFixture = {
   name: "candidate", parentBranch: { branchId: "branch-main", name: "main" },
   headSnapshot: { snapshotId: "snapshot-one", snapshotCommittedAt: timestamp },
-  parentSnapshot: { snapshotId: "snapshot-one", snapshotCommittedAt: timestamp }, createdAt: timestamp
+  parentSnapshot: { snapshotId: "snapshot-one", snapshotCommittedAt: timestamp },
+  numDocs: 3, dataUpdatedAt: timestamp, indexConfigs: refSchema, createdAt: timestamp
 };
-const tagFixture = { name: "release", snapshotId: "snapshot-one", snapshotCommittedAt: timestamp, createdAt: timestamp };
+const tagFixture = {
+  name: "release", snapshotId: "snapshot-one", snapshotCommittedAt: timestamp,
+  numDocs: 3, dataUpdatedAt: timestamp, indexConfigs: refSchema, createdAt: timestamp
+};
 const aliasFixture = {
   aliasId: "alias-one", aliasName: "serving", targetKind: "TAG", targetName: "release",
-  targetId: "tag-one", aliasRevision: 2, dangling: false, createdAt: timestamp
+  targetId: "tag-one", aliasRevision: 2, dangling: false, indexConfigs: refSchema, createdAt: timestamp
 };
+const refKinds = [["branch", "branches", branchFixture], ["tag", "tags", tagFixture], ["alias", "aliases", aliasFixture]];
 
 test("read-only connections expose ref discovery and reject every mutation", async t => {
   const h = await harness(t, { respond: req => ({ body:
@@ -808,6 +815,7 @@ test("version lifecycle tools preserve source, target, paths and snapshot metada
   const cases = [
     ["create_branch", { branchName: "candidate" }, "POST", "/branches"],
     ["create_branch", { branchName: "candidate", source: { kind: "branch", name: "main", asOf: timestamp } }, "POST", "/branches"],
+    ["create_branch", { branchName: "candidate", source: { kind: "tag", name: "release" } }, "POST", "/branches"],
     ["create_tag", { tagName: "release" }, "POST", "/tags"],
     ["create_tag", { tagName: "release", source: { kind: "branch", name: "candidate", asOf: timestamp } }, "POST", "/tags"],
     ["create_tag", { tagName: "release", source: { kind: "tag", name: "previous" } }, "POST", "/tags"],
@@ -830,13 +838,121 @@ test("version lifecycle tools preserve source, target, paths and snapshot metada
     }
     if (result.tag) assert.equal(result.tag.snapshotCommittedAt, new Date(timestamp).toISOString());
     if (result.alias) assert.equal(result.alias.aliasRevision, 2);
+    const ref = result.branch ?? result.tag ?? result.alias;
+    if (ref) assert.deepEqual(ref.indexConfigs, refSchema, tool);
+    if (ref && !result.alias) {
+      assert.equal(ref.numDocs, 3, tool);
+      assert.equal(ref.dataUpdatedAt, new Date(timestamp).toISOString(), tool);
+    }
   }
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_create_branch");
+  assert.match(tool.inputSchema.properties.source.description, /asOf is valid only with a branch source/);
+});
+
+test("single ref reads use their own paths and pass schemas, statistics and null states through", async t => {
+  // A branch created from a tag has no parent; an empty branch has no head or data timestamp.
+  const wire = {
+    branch: { ...branchFixture, parentBranch: null, headSnapshot: null, parentSnapshot: null, numDocs: 0, dataUpdatedAt: null },
+    tag: tagFixture,
+    alias: { ...aliasFixture, dangling: true, indexConfigs: null }
+  };
+  const h = await harness(t, { respond: req => {
+    const [plural, name] = req.url.pathname.split("/").slice(-2);
+    if (name === "ghost") return { status: 404, body: { message: `Ref ghost not found in ${plural}` } };
+    const kind = refKinds.find(([, candidate]) => candidate === plural)[0];
+    return { body: { [kind]: wire[kind] } };
+  } });
+  for (const [kind, plural, fixture] of refKinds) {
+    const result = data(await h.call(`get_${kind}`, { collectionName: "items", [`${kind}Name`]: fixture.name ?? fixture.aliasName }));
+    const request = h.requests.at(-1);
+    assert.equal(request.method, "GET");
+    assert.equal(request.url.pathname, `/projects/test/collections/items/${plural}/${fixture.name ?? fixture.aliasName}`);
+    assert.equal(request.url.search, "");
+    assert.deepEqual(result[kind], { ...wire[kind], createdAt: new Date(timestamp).toISOString(),
+      ...(kind === "tag" ? { snapshotCommittedAt: new Date(timestamp).toISOString(), dataUpdatedAt: new Date(timestamp).toISOString() } : {}) });
+    const missing = await h.call(`get_${kind}`, { collectionName: "items", [`${kind}Name`]: "ghost" });
+    assert.equal(missing.content[0].text,
+      `Ref ghost not found in ${plural}. Check the name with lambdadb_list_branches, lambdadb_list_tags, or lambdadb_list_aliases.`);
+    const count = h.requests.length;
+    for (const args of [{}, { [`${kind}Name`]: "x" }, { [`${kind}Name`]: "valid-name", ref: { kind, name: "valid-name" } }]) {
+      assert.equal((await h.call(`get_${kind}`, { collectionName: "items", ...args })).isError, true, JSON.stringify(args));
+    }
+    assert.equal(h.requests.length, count);
+  }
+});
+
+test("ref listings request one page and return nextPageToken only when the server sends one", async t => {
+  const h = await harness(t, { respond: req => {
+    const plural = req.url.pathname.split("/").at(-1);
+    const fixture = refKinds.find(([, candidate]) => candidate === plural)[2];
+    return req.url.searchParams.has("pageToken") ? { body: { [plural]: [] } } : { body: { [plural]: [fixture], nextPageToken: "next" } };
+  } });
+  const tools = (await h.client.listTools()).tools;
+  for (const [, plural] of refKinds) {
+    const schema = tools.find(tool => tool.name === `lambdadb_list_${plural}`).inputSchema;
+    assert.deepEqual([schema.properties.size.minimum, schema.properties.size.maximum], [1, 100]);
+    const first = data(await h.call(`list_${plural}`, { collectionName: "items" }));
+    assert.equal(h.requests.at(-1).url.search, "", "Unset paging inputs stay off the wire");
+    assert.equal(first.nextPageToken, "next");
+    assert.equal(first[plural].length, 1);
+    const last = data(await h.call(`list_${plural}`, { collectionName: "items", size: 100, pageToken: first.nextPageToken }));
+    assert.equal(h.requests.at(-1).url.pathname, `/projects/test/collections/items/${plural}`);
+    assert.equal(h.requests.at(-1).url.search, "?pageToken=next&size=100");
+    assert.deepEqual(last, { [plural]: [] });
+    const count = h.requests.length;
+    for (const args of [{ size: 0 }, { size: 101 }, { size: 1.5 }, { pageToken: 1 }, { limit: 5 }]) {
+      assert.equal((await h.call(`list_${plural}`, { collectionName: "items", ...args })).isError, true, JSON.stringify(args));
+    }
+    assert.equal(h.requests.length, count, "One call is one page; invalid paging never reaches HTTP");
+  }
+});
+
+test("update_branch sends indexConfigs only to the branch route and maps service errors", async t => {
+  const messages = { 400: "serving is not a branch", 404: "Branch ghost not found", 409: "Schema update conflict" };
+  const h = await harness(t, { write: true, respond: req => {
+    const status = { release: 400, ghost: 404, busy: 409 }[req.url.pathname.split("/").at(-1)];
+    return status ? { status, body: { message: messages[status] } } : { body: { branch: { ...branchFixture, indexConfigs: req.body.indexConfigs } } };
+  } });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_update_branch");
+  assert.deepEqual(tool.inputSchema.required.sort(), ["branchName", "collectionName", "indexConfigs"]);
+  assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ["branchName", "collectionName", "indexConfigs"]);
+  assert.deepEqual(tool.inputSchema.properties.indexConfigs.additionalProperties,
+    (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_update_collection").inputSchema.properties.indexConfigs.additionalProperties);
+  const indexConfigs = { ...refSchema, title: { type: "text", description: "" }, category: { type: "keyword", description: null },
+    extra: { type: "object", objectIndexConfigs: { brand: { type: "keyword", description: "Manufacturer" } } } };
+  for (const branchName of ["candidate", "main"]) {
+    const result = data(await h.call("update_branch", { collectionName: "items", branchName, indexConfigs }));
+    assert.equal(h.requests.at(-1).method, "PATCH");
+    assert.equal(h.requests.at(-1).url.pathname, `/projects/test/collections/items/branches/${branchName}`);
+    assert.deepEqual(h.requests.at(-1).body, { indexConfigs });
+    assert.deepEqual(Object.keys(result.branch.indexConfigs), Object.keys(indexConfigs));
+    assert.equal(result.branch.numDocs, 3);
+  }
+  for (const [branchName, status] of [["release", 400], ["ghost", 404], ["busy", 409]]) {
+    const count = h.requests.length;
+    const result = await h.call("update_branch", { collectionName: "items", branchName, indexConfigs });
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes(messages[status]), result.content[0].text);
+    assert.equal(h.requests.length, count + 1, "No retry or fallback write");
+  }
+  const count = h.requests.length;
+  for (const args of [{}, { indexConfigs: {} }, { indexConfigs: null }, { indexConfigs, description: "Not a branch setting" },
+    { indexConfigs: { title: { type: "text", description: "x".repeat(256) } } }, { indexConfigs: { title: { type: "bogus" } } }]) {
+    assert.equal((await h.call("update_branch", { collectionName: "items", branchName: "candidate", ...args })).isError, true, JSON.stringify(args));
+  }
+  assert.equal((await h.call("update_branch", { collectionName: "items", indexConfigs })).isError, true);
+  assert.equal(h.requests.length, count);
+  const read = await harness(t);
+  const rejected = await read.call("update_branch", { collectionName: "items", branchName: "candidate", indexConfigs });
+  assert.match(rejected.content[0].text, /not found/i);
+  assert.equal(read.requests.length, 0);
 });
 
 test("invalid lifecycle selectors fail before HTTP and cannot fall back to main", async t => {
   const h = await harness(t, { write: true });
   const cases = [
-    ["create_branch", { branchName: "new", source: { kind: "tag", name: "release" } }],
+    ["create_branch", { branchName: "new", source: { kind: "tag", name: "release", asOf: timestamp } }],
+    ["create_branch", { branchName: "new", source: { kind: "alias", name: "serving" } }],
     ["create_branch", { branchName: "new", source: { kind: "branch", name: "main", asOf: "yesterday" } }],
     ["create_branch", { branchName: "new", source: { kind: "branch", name: "main", asOf: 1.5 } }],
     ["create_tag", { tagName: "new", source: { kind: "alias", name: "serving" } }],
@@ -909,7 +1025,12 @@ test("collection settings and document patches retain explicit payloads; collect
   const changes = { description: "", tags: {}, snapshotRetentionInDays: 7, indexConfigs: { extra: { type: "keyword" } } };
   data(await h.call("update_collection", { collectionName: "items", ...changes }));
   assert.equal(h.requests[0].method, "PATCH");
+  // Deprecated indexConfigs still travels on the collection route unchanged.
+  assert.equal(h.requests[0].url.pathname, "/projects/test/collections/items");
   assert.deepEqual(h.requests[0].body, changes);
+  const update = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_update_collection");
+  assert.match(update.description, /deprecated in favour of lambdadb_update_branch/);
+  assert.match(update.inputSchema.properties.indexConfigs.description, /^Deprecated: use lambdadb_update_branch/);
   const unchanged = { description: "Kept", tags: null, snapshotRetentionInDays: null };
   data(await h.call("update_collection", { collectionName: "items", ...unchanged }));
   assert.deepEqual(h.requests[1].body, unchanged);
