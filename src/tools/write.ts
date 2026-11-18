@@ -33,13 +33,15 @@ const indexConfigsSchema = (description: z.ZodType) => z.record(z.string(), z.lo
   objectIndexConfigs: z.record(z.string(), z.looseObject({ description: description.optional() })).optional()
     .describe("Nested field configurations of an object field, in the same shape; each child may carry its own description.")
 }));
+/** indexConfigs of a schema update: lambdadb_update_branch and the deprecated lambdadb_update_collection field. */
+export const updateIndexConfigsSchema = indexConfigsSchema(updateFieldDescription);
 
 export function registerWriteTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
     "lambdadb_create_collection",
     {
       title: "Create Collection",
-      description: "Create a new collection in the configured project. Define every field to search, filter, sort, or facet on in indexConfigs (text, keyword, vector, sparseVector, boolean, datetime, long, double, object); the server-managed id field may be omitted. Keyword indexes built on a supporting server support facets. Native embedding vector fields (providers openai, cohere) accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers. Then load documents with lambdadb_upsert_docs or lambdadb_bulk_upsert_docs.",
+      description: "Create a new collection in the configured project; the result is the full collection metadata, as returned by lambdadb_get_collection. Define every field to search, filter, sort, or facet on in indexConfigs (text, keyword, vector, sparseVector, boolean, datetime, long, double, object); the server-managed id field may be omitted. Keyword indexes built on a supporting server support facets. Native embedding vector fields (providers openai, cohere) accept embedding without managedEmbedding; explicit managedEmbedding: true remains supported for older servers. Then load documents with lambdadb_upsert_docs or lambdadb_bulk_upsert_docs.",
       annotations: {
         destructiveHint: false,
         openWorldHint: false
@@ -135,13 +137,13 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
     "lambdadb_update_collection",
     {
       title: "Update Collection",
-      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. Existing indexed fields cannot be removed, and only their description may change; historical documents are not automatically backfilled. Lowering retention can shorten available history. Omitted or null values leave settings unchanged; use an empty description or empty tags object to clear those fields. Retention cannot be cleared. These metadata tags are not version Tags.",
+      description: "Update collection description, metadata tags, snapshot retention, or additive index configuration. indexConfigs here is deprecated in favour of lambdadb_update_branch: it still works and changes the main branch's schema only. Existing indexed fields cannot be removed, and only their description may change; historical documents are not automatically backfilled. Lowering retention can shorten available history. Omitted or null values leave settings unchanged; use an empty description or empty tags object to clear those fields. Retention cannot be cleared. These metadata tags are not version Tags.",
       annotations: { destructiveHint: true, openWorldHint: false },
       // The SDK rejects empty indexConfigs and inputs without a non-null field
       // before any HTTP request. The server treats null as unchanged.
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        indexConfigs: indexConfigsSchema(updateFieldDescription).optional().describe("Fields to add, in the same shape as lambdadb_create_collection indexConfigs, or existing fields sent unchanged except for a new description; other settings of existing fields cannot be changed and fields cannot be removed."),
+        indexConfigs: updateIndexConfigsSchema.optional().describe("Deprecated: use lambdadb_update_branch with branchName main, which makes the same change. Fields to add, in the same shape as lambdadb_create_collection indexConfigs, or existing fields sent unchanged except for a new description; other settings of existing fields cannot be changed and fields cannot be removed."),
         description: z.string().max(255).nullable().optional().describe("New description (max 255 chars); an empty string clears it. Null leaves it unchanged."),
         tags: tagsSchema.nullable().optional().describe("Replacement metadata tags (up to five); an empty object clears them. Null leaves them unchanged. These are not version Tags."),
         snapshotRetentionInDays: retentionSchema.nullable().optional().describe("Retention in days (1–31). Null leaves it unchanged; it cannot be cleared. Lowering it can shorten available asOf history.")

@@ -100,7 +100,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
   try {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
-    assert.equal((await client.listTools()).tools.length, 22);
+    assert.equal((await client.listTools()).tools.length, 26);
     await call("list_collections", { size: 1 });
     console.info("[live] Project List and write opt-in: PASS");
     const made = await scoped("create_collection", {

@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- Pin the LambdaDB SDK to 0.13.0, aligned with the public OpenAPI contract
+  `reference/api/openapi.json` (`info.version` 1.3.0) in lambdadb/docs at commit
+  `7be299af9cac4195b75feb6e38b5cd7f8989f5a0` (SHA-256
+  `ec499bb6ad4fd7359c1854359e9ecfd4cd8609420f440f7dcbf75566ccda8f32`), synced
+  from lambdadb/lambdadb commit `f9aa63c79cbac2ac477a76ec45e5015ce665afd1`.
+  The SDK requires the new response fields, so this build needs a server that
+  serves this contract.
+- Add the read tools `lambdadb_get_branch`, `lambdadb_get_tag` and
+  `lambdadb_get_alias`. Each returns one ref with its `indexConfigs`; branches
+  and tags also carry `numDocs` and `dataUpdatedAt` (`null` for an empty
+  branch), and a dangling alias is returned with `indexConfigs: null`. The same
+  fields appear in create, retarget and list results.
+- Add the write tool `lambdadb_update_branch`, which changes the index schema of
+  one branch with the same additive rule and `indexConfigs` field schema as the
+  collection update. Updating `main` also changes the collection's
+  `indexConfigs`; a tag or alias name fails with HTTP 400. `indexConfigs` on
+  `lambdadb_update_collection` is deprecated in favour of it and keeps working.
+- **Changed:** `lambdadb_list_branches`, `lambdadb_list_tags` and
+  `lambdadb_list_aliases` return one page per call, like
+  `lambdadb_list_collections`. They accept `size` (1–100, server default 10) and
+  `pageToken` and return `nextPageToken` when more entries follow; a collection
+  with more than ten refs of a kind no longer appears in a single result.
+- `lambdadb_create_branch` accepts a tag source as well as a branch source;
+  `asOf` stays valid only with a branch source, and alias sources are rejected.
+  A branch created from a tag has `parentBranch: null`.
+- `lambdadb_create_collection` returns the full collection metadata, as
+  `lambdadb_get_collection` does.
+- Server instructions, tool descriptions and README state that each branch owns
+  its index schema, and follow the contract on what branch and tag creation
+  capture: without `asOf`, the source snapshot plus the writes already accepted
+  on it; with `asOf`, a retained committed snapshot only.
+
 ## [0.5.0] - 2026-11-06
 
 - Pin the LambdaDB SDK to 0.12.0, aligned with the public OpenAPI contract

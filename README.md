@@ -21,7 +21,9 @@ Server instructions and tool descriptions explain index inspection, pagination,
 the `docs[].doc` result wrapper, and reading writes back: query/fetch
 `consistentRead:true` includes the branch's pending writes through a branch ref
 or an alias that targets a branch (tag reads reject it), and bulk imports
-appear after indexing completes. Collection counts describe branch main. Write
+appear after indexing completes. Collection `indexConfigs` and counts describe
+branch main; every other branch, tag and alias reports its own schema through
+`lambdadb_get_branch`, `lambdadb_get_tag` and `lambdadb_get_alias`. Write
 result text names the read-back step without changing the SDK response payload.
 
 Read-only defaults, request validation, ref resolution, error handling and query
@@ -37,7 +39,9 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-MCP 0.5.0 pins LambdaDB SDK `0.12.0`: optional index field
+The current source pins LambdaDB SDK `0.13.0`: branch-scoped index schemas,
+single branch/tag/alias reads, paginated ref listings, branches created from
+tags, optional index field
 `description`s, consistent reads through an alias, Cohere native embedding and
 reranking, ordered embedding `sources`, `knn.queryInputs`, the server-managed
 `id` field and 1000-result Query/Fetch/List limits. Vector dimensions must be
@@ -194,6 +198,9 @@ Read-only:
 - `lambdadb_list_branches`
 - `lambdadb_list_tags`
 - `lambdadb_list_aliases`
+- `lambdadb_get_branch`
+- `lambdadb_get_tag`
+- `lambdadb_get_alias`
 
 Optional write tools:
 
@@ -205,6 +212,7 @@ Optional write tools:
 - `lambdadb_update_collection`
 - `lambdadb_delete_collection`
 - `lambdadb_create_branch`
+- `lambdadb_update_branch`
 - `lambdadb_delete_branch`
 - `lambdadb_create_tag`
 - `lambdadb_delete_tag`
@@ -225,29 +233,36 @@ Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
 
 | Tool suffix (after `lambdadb_`) | Inputs and behavior |
 | --- | --- |
-| `list_branches`, `list_tags`, `list_aliases` | Return existing refs and their metadata. Available in read-only mode. |
-| `create_branch` | `branchName`, optional `source: {kind: "branch", name, asOf?}`. Omitted source uses main. Copies committed state only. |
-| `create_tag` | `tagName`, optional branch source as above or `{kind: "tag", name}`. Omitted source uses main. Pins committed state for immutable reads. |
+| `list_branches`, `list_tags`, `list_aliases` | Optional `size` (1–100, server default 10) and `pageToken`. Return one page of refs in name order with their metadata and `indexConfigs`, plus `nextPageToken` when more follow. Available in read-only mode. |
+| `get_branch`, `get_tag`, `get_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Return one ref with its `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`. A dangling alias is returned with `indexConfigs: null`. Available in read-only mode. |
+| `create_branch` | `branchName`, optional `source: {kind: "branch", name, asOf?}` or `{kind: "tag", name}`. Omitted source uses main. The new branch inherits the source's `indexConfigs`. |
+| `update_branch` | `branchName` and `indexConfigs`: the branch's complete existing schema plus fields to add; an existing field may change only its `description`. Applies to that branch only; updating `main` also changes the collection's `indexConfigs`. No automatic historical backfill. |
+| `create_tag` | `tagName`, optional branch source as above or `{kind: "tag", name}`. Omitted source uses main. Pins the source's state and schema for immutable reads. |
 | `create_alias` | `aliasName`, `target: {kind: "branch" | "tag", name}`. |
 | `retarget_alias` | `aliasName`, `target` as above. Changes future alias reads, not write targets or stored data. |
 | `delete_branch`, `delete_tag`, `delete_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Deleting an alias does not delete its target. |
 | `update_docs` | `docs` with existing IDs and optional `branch`. Preserves omitted fields, merges nested objects and replaces arrays. Missing IDs fail rather than insert. |
 | `bulk_upsert_docs` | `docs` and optional `branch`. Runs the SDK's upload-URL, upload, and ingestion workflow. |
-| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`. Omitted or `null` values leave settings unchanged; use `description: ""` or `tags: {}` to clear those fields. Retention must be 1–31 and cannot be cleared. Index changes add fields or change an existing field's `description` only; no automatic historical backfill. |
+| `update_collection` | At least one non-null `indexConfigs`, `description`, metadata `tags`, or `snapshotRetentionInDays`. Omitted or `null` values leave settings unchanged; use `description: ""` or `tags: {}` to clear those fields. Retention must be 1–31 and cannot be cleared. `indexConfigs` is deprecated in favour of `update_branch`: it still works and changes the schema of `main` only. Index changes add fields or change an existing field's `description` only; no automatic historical backfill. |
 | `delete_collection` | Deletes the collection, including its data and refs. |
 
 `asOf` is an integer Unix epoch millisecond cutoff, not an ISO date string.
-Branch sources cannot be tags or aliases. Tags cannot use an alias source, and
-a tag source cannot have `asOf`. Alias targets cannot be aliases or use `asOf`.
+Branch and tag sources may be a branch or a tag, never an alias, and a tag
+source cannot have `asOf`. A branch created from a tag has `parentBranch: null`.
+Alias targets cannot be aliases or use `asOf`. Only a branch has an updatable
+schema: `update_branch` with a tag or alias name fails with HTTP 400.
 Missing/expired history and referenced-ref conflicts remain errors; the tools
 never silently switch to main or delete dependent refs. Main cannot be deleted
 as a branch. Delete or retarget referencing aliases before deleting a branch/tag.
 Deleting a tag removes its retention pin. Metadata `tags` on a collection are
 separate from version Tags.
 
-Creating a branch/tag immediately after a write does not prove the write is
-included: these operations use committed snapshots, while ordinary writes can
-still be pending. A tag fixes the retrieval dataset; it does not checkpoint an
+Without `asOf`, a new branch or tag captures the source's committed snapshot
+together with the writes already accepted on it; with `asOf` it captures only
+the latest retained committed snapshot at or before the cutoff. Captured pending
+writes still become visible to ordinary reads only after they are built, and
+bulk imports after indexing, so verify the data before relying on a new ref.
+A tag fixes the retrieval dataset; it does not checkpoint an
 agent's conversation, execution state, or external effects. Branch merge/reset
 is not added by these tools.
 
@@ -285,14 +300,19 @@ retry controls and Qdrant compatibility are not separate MCP tools.
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.12.0`, checked against
-the published package and [v0.12.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/CHANGELOG.md).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.13.0`, checked against
+the published package and [v0.13.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.13.0/CHANGELOG.md).
+It implements the public OpenAPI contract `reference/api/openapi.json` (`info.version`
+1.3.0) in lambdadb/docs at commit `7be299af9cac4195b75feb6e38b5cd7f8989f5a0` (SHA-256
+`ec499bb6ad4fd7359c1854359e9ecfd4cd8609420f440f7dcbf75566ccda8f32`), synced from
+lambdadb/lambdadb commit `f9aa63c79cbac2ac477a76ec45e5015ce665afd1`.
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
 - Collection creation requires a nonempty `indexConfigs` and accepts `description`,
   metadata `tags`, `partitionConfig`, and `snapshotRetentionInDays` (1–31).
   The SDK validates individual index configurations and accepts HTTP 201 responses.
+  The result is the full collection metadata, the same shape as `lambdadb_get_collection`.
   Collection metadata includes the server-managed `id` field as `{ "type": "keyword" }`;
   creation may omit it or send it back unchanged, so returned `indexConfigs` can be reused.
 - Every index field, including nested `objectIndexConfigs` children, accepts an optional
@@ -301,6 +321,18 @@ alone does not update previously published or installed MCP packages.
   the field unchanged with a string to set it, `""` to clear it, or `null`/omitted to keep
   it. Collection reads return `description` only when set. The server-managed `id` field
   rejects a description.
+- A branch owns its index schema. A new branch inherits its source's schema (a tag's
+  pinned one), and `lambdadb_update_branch` changes one branch only; updating `main`
+  also changes the collection's `indexConfigs`, which mirror `main`. `indexConfigs` on
+  `lambdadb_update_collection` is deprecated and remains as the same change to `main`.
+  The update is additive: send the branch's complete existing schema plus new fields.
+- Branch, tag and alias results (get, create, retarget and list entries) carry
+  `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`, which is
+  `null` for an empty branch. A dangling alias has `indexConfigs: null`. MCP passes SDK
+  results through unshaped, so these fields appear as the SDK returns them.
+- Branch, tag and alias listings return one page per call, like
+  `lambdadb_list_collections`: `size` is 1–100 (server default 10) and `nextPageToken`
+  is present only when more entries follow. A page is not the full list.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
   Omitting `ref` reads from `main`. Query and Fetch accept `consistentRead` with an
   omitted ref, a branch ref, or an alias ref; the server resolves the alias, and an
@@ -505,7 +537,7 @@ with top-level dimensions/similarity. Caller-provided vectors continue to use
 top-level dimensions/similarity. Free-form nested object configurations retain
 server validation. For older servers, explicitly add `managedEmbedding: true`
 beside `type`; it is preserved. Normalized collection metadata may still contain
-that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/docs/native-embeddings.md).
+that true flag. See the [native embedding contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.13.0/docs/native-embeddings.md).
 
 <a id="optional-managed-reranking"></a>
 
@@ -514,7 +546,7 @@ that true flag. See the [native embedding contract](https://github.com/lambdadb/
 `lambdadb_query_collection` accepts per-query `rerank`; omission or `null`
 preserves existing searches. Collection creation has no rerank setting.
 LambdaDB supplies provider credentials; only the existing project API key is needed.
-See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.12.0/docs/native-reranking.md).
+See the [native reranking contract](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.13.0/docs/native-reranking.md).
 
 ```json
 {
@@ -633,7 +665,10 @@ npm run test:package
 client to this server and exercise the installed SDK against a local HTTP fixture.
 They cover read-only defaults, write opt-in, List/Get response validation, creation
 HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
-arrays/errors and local environment-file loading. Facet tests validate the published
+arrays/errors and local environment-file loading. Ref tests cover single branch/tag/alias
+reads with their schemas and null states, one-page ref listings with `size`/`pageToken`,
+branches created from tags, branch schema updates with their HTTP 400/404/409 errors,
+and the deprecated collection `indexConfigs` path. Facet tests validate the published
 MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-only,
 document+facet, omitted/null/default bucket options, boundaries, invalid requests,
 and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,

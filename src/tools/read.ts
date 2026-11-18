@@ -34,7 +34,7 @@ const rerankOptions = {
   onFailure: z.enum(["error", "returnOriginal"]).nullable().optional()
     .describe("Omitted/null defaults to error. returnOriginal covers only eligible provider failures.")
 };
-// SDK 0.12.0 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
+// SDK 0.13.0 RerankConfig: TypesafeRerankConfig | CohereRerankConfig, discriminated by provider.
 const rerankSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("typesafe"),
@@ -79,7 +79,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_get_collection",
     {
       title: "Get Collection",
-      description: "Inspect a collection's field types and indexConfigs before constructing searches. Document counts describe branch main. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
+      description: "Inspect a collection's field types and indexConfigs before constructing searches. indexConfigs and document counts describe branch main; another branch, a tag or an alias carries its own schema in lambdadb_get_branch, lambdadb_get_tag or lambdadb_get_alias. Use lambdadb_query_collection for documents, or lambdadb_list_docs with size 1 to see a sample document's actual field values.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
