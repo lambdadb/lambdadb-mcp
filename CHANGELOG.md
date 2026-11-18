@@ -33,6 +33,9 @@
   its index schema, and follow the contract on what branch and tag creation
   capture: without `asOf`, the source snapshot plus the writes already accepted
   on it; with `asOf`, a retained committed snapshot only.
+- The live suite calls the new tools against a deployed server: single ref
+  reads, one-page ref listings with `pageToken`, a branch schema update that
+  leaves `main` unchanged, and a branch created from a tag.
 
 ## [0.5.0] - 2026-11-06
 

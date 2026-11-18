@@ -205,6 +205,34 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     assert.ok((await scoped("list_branches")).branches.some(ref => ref.name === "candidate"));
     assert.ok((await scoped("list_tags")).tags.some(ref => ref.name === "release"));
     assert.ok((await scoped("list_aliases")).aliases.some(ref => ref.aliasName === "current"));
+    // Contract 1.3.0: single ref reads, one-page listings, a branch-owned schema and a branch from a tag.
+    const mainBranch = (await scoped("get_branch", { branchName: "main" })).branch;
+    assert.deepEqual(mainBranch.indexConfigs, metadata.collection.indexConfigs);
+    const candidate = (await scoped("get_branch", { branchName: "candidate" })).branch;
+    assert.equal(candidate.parentBranch.name, "main");
+    assert.deepEqual(candidate.indexConfigs, mainBranch.indexConfigs);
+    const release = (await scoped("get_tag", { tagName: "release" })).tag;
+    assert.equal(typeof release.numDocs, "number");
+    assert.deepEqual(release.indexConfigs, mainBranch.indexConfigs);
+    const current = (await scoped("get_alias", { aliasName: "current" })).alias;
+    assert.equal(current.targetName, "release");
+    assert.deepEqual(current.indexConfigs, mainBranch.indexConfigs);
+    const firstRefs = await scoped("list_branches", { size: 1 });
+    assert.deepEqual(firstRefs.branches.map(ref => ref.name), ["candidate"]);
+    const secondRefs = await scoped("list_branches", { size: 1, pageToken: firstRefs.nextPageToken });
+    assert.deepEqual(secondRefs.branches.map(ref => ref.name), ["main"]);
+    assert.equal(secondRefs.nextPageToken, undefined);
+    const widened = await scoped("update_branch", {
+      branchName: "candidate", indexConfigs: { ...candidate.indexConfigs, reviewed: { type: "boolean" } }
+    });
+    assert.equal(widened.branch.indexConfigs.reviewed.type, "boolean");
+    assert.equal((await scoped("get_branch", { branchName: "main" })).branch.indexConfigs.reviewed, undefined);
+    assert.equal((await scoped("get_collection")).collection.indexConfigs.reviewed, undefined);
+    const fromTag = await scoped("create_branch", { branchName: "from-release", source: { kind: "tag", name: "release" } });
+    assert.equal(fromTag.branch.parentBranch, null);
+    assert.deepEqual(fromTag.branch.indexConfigs, release.indexConfigs);
+    await scoped("delete_branch", { branchName: "from-release" });
+    console.info("[live] Single ref reads, paged ref listings, branch schema update, branch from a tag: PASS");
     for (const ref of [
       { kind: "branch", name: "candidate" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }
     ]) {
