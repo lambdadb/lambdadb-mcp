@@ -143,7 +143,7 @@ export function registerWriteTools(server: McpServer, config: ToolContext): void
       // before any HTTP request. The server treats null as unchanged.
       inputSchema: z.strictObject({
         collectionName: nameSchema,
-        indexConfigs: updateIndexConfigsSchema.optional().describe("Deprecated: use lambdadb_update_branch with branchName main, which makes the same change. Fields to add, in the same shape as lambdadb_create_collection indexConfigs, or existing fields sent unchanged except for a new description; other settings of existing fields cannot be changed and fields cannot be removed."),
+        indexConfigs: updateIndexConfigsSchema.optional().describe("Deprecated: use lambdadb_update_branch with branchName main, which makes the same change. The complete existing indexConfigs from lambdadb_get_collection (the server-managed id field may be kept or omitted) plus any fields to add, in the same shape as lambdadb_create_collection indexConfigs. Existing fields are sent unchanged except for a new description; their other settings cannot be changed and fields cannot be removed."),
         description: z.string().max(255).nullable().optional().describe("New description (max 255 chars); an empty string clears it. Null leaves it unchanged."),
         tags: tagsSchema.nullable().optional().describe("Replacement metadata tags (up to five); an empty object clears them. Null leaves them unchanged. These are not version Tags."),
         snapshotRetentionInDays: retentionSchema.nullable().optional().describe("Retention in days (1–31). Null leaves it unchanged; it cannot be cleared. Lowering it can shorten available asOf history.")
