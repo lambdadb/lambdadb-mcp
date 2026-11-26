@@ -1,5 +1,6 @@
 import type {
   FetchDocsInput,
+  ListDocsInput,
   QueryCollectionInput
 } from "@functional-systems/lambdadb";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -53,6 +54,16 @@ const rerankSchema = z.discriminatedUnion("provider", [
 
 const includeVectorsSchema = z.boolean().optional()
   .describe("Include stored vector values in returned documents; default false because vectors make responses large.");
+const consistentReadSchema = z.boolean().optional()
+  .describe("Include the branch's pending writes (bulk imports appear after indexing). Allowed with an omitted ref, a branch ref, or an alias that targets a branch; a tag ref or an alias that targets a tag rejects true.");
+// ListDocsSortField of the public contract: lowercase directions only, unlike query sort.
+const listSortSchema = z.array(
+  z.record(z.string(), z.enum(["asc", "desc"]))
+    .refine((field) => Object.keys(field).length === 1, "Each sort object names exactly one field.")
+    // Zod refinements are not represented in JSON Schema without explicit metadata.
+    .meta({ minProperties: 1, maxProperties: 1 })
+).min(1).max(4).optional()
+  .describe("1–4 single-field objects, each mapping a keyword, long, double or datetime field to 'asc' or 'desc', e.g. [{category: 'asc'}, {createdAt: 'desc'}]; ascending document ID breaks ties. Omit for ascending document ID order; an empty array is rejected.");
 
 export function registerReadTools(server: McpServer, config: ToolContext): void {
   server.registerTool(
@@ -118,7 +129,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         facets: facetsSchema.optional(),
         rerank: rerankSchema,
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing). Allowed with an omitted ref, a branch ref, or an alias that targets a branch; a tag ref or an alias that targets a tag rejects true."),
+        consistentRead: consistentReadSchema,
         includeVectors: includeVectorsSchema,
         // JSON Schema conversion drops RegExp flags; encode case folding in the pattern.
         sort: z.array(z.record(
@@ -182,7 +193,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     "lambdadb_list_docs",
     {
       title: "List Documents",
-      description: "List documents at the selected ref with pagination; follow nextPageToken when needed. This operation has no consistentRead option. Use lambdadb_fetch_docs for known IDs or lambdadb_query_collection for indexed search and recent writes.",
+      description: "List one page of documents at the selected ref in ascending document ID order, or by sort. A branch listing reads its published snapshot unless consistentRead is set; a tag, or an alias that targets a tag, also includes the tag's captured pending writes. A listing with a large pending payload can fail with HTTP 429; retry later. To continue, call again with pageToken set to nextPageToken and every other argument exactly as before: the token is bound to size, sort, consistentRead, filter, fields, partitionFilter, includeVectors and ref, and any change fails with HTTP 400. Use lambdadb_fetch_docs for known IDs or lambdadb_query_collection for indexed search.",
       annotations: {
         readOnlyHint: true,
         openWorldHint: false
@@ -190,8 +201,10 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         size: z.number().int().min(1).max(1000).optional().describe("Documents per page (1–1000). Keep pages small and use fields to leave out large stored fields; every returned document is passed through in full."),
-        pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response; keep the other inputs unchanged between pages."),
+        pageToken: z.string().optional().describe("Opaque nextPageToken from the previous response. Repeat every other argument exactly as on the first page, leaving omitted ones omitted; a changed request condition fails with HTTP 400."),
         ref: readRefSchema.optional(),
+        consistentRead: consistentReadSchema,
+        sort: listSortSchema,
         filter: z.record(z.string(), z.any()).optional().describe("Filter applied before pagination using the queryString and bool shapes of lambdadb_query_collection, e.g. {queryString: {query: 'category:docs'}}. Vector and ranking queries are not allowed."),
         fields: fieldsSchema.optional(),
         includeVectors: includeVectorsSchema,
@@ -199,17 +212,21 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
       })
     },
     ({
-      collectionName, size, pageToken, ref, filter, fields, includeVectors, partitionFilter
+      collectionName, size, pageToken, ref, consistentRead, sort, filter, fields, includeVectors, partitionFilter
     }) => withLambdaDB(config, async client => {
-      const result = await client.collection(collectionName).docs.list({
+      // The SDK validates read options at request time.
+      const input = {
         size,
         pageToken,
         ref,
+        consistentRead,
+        sort,
         filter,
         fields,
         includeVectors,
         partitionFilter
-      });
+      } as ListDocsInput;
+      const result = await client.collection(collectionName).docs.list(input);
       return jsonResult("Documents listed successfully.", result);
     })
   );
@@ -227,7 +244,7 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
         collectionName: nameSchema,
         ids: z.array(z.string().min(1)).min(1).max(1000).describe("Document id values to look up (1–1000). Use fields to leave out large stored fields; every returned document is passed through in full."),
         ref: readRefSchema.optional(),
-        consistentRead: z.boolean().optional().describe("Include the branch's pending writes (bulk imports appear after indexing). Allowed with an omitted ref, a branch ref, or an alias that targets a branch; a tag ref or an alias that targets a tag rejects true."),
+        consistentRead: consistentReadSchema,
         includeVectors: includeVectorsSchema,
         fields: fieldsSchema.optional(),
         partitionFilter: partitionFilterSchema.optional()

@@ -18,7 +18,7 @@ connection stays pinned to its configured project even when CLI defaults change.
 Preserve the selected collection and read ref when changing access paths.
 
 Server instructions and tool descriptions explain index inspection, pagination,
-the `docs[].doc` result wrapper, and reading writes back: query/fetch
+the `docs[].doc` result wrapper, and reading writes back: query/fetch/list
 `consistentRead:true` includes the branch's pending writes through a branch ref
 or an alias that targets a branch (tag reads reject it), and bulk imports
 appear after indexing completes. Collection `indexConfigs` and counts describe
@@ -39,7 +39,9 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-MCP 0.6.0 pins LambdaDB SDK `0.13.0`: branch-scoped index schemas,
+The current source pins LambdaDB SDK `0.15.0`: branch rollback to a tag, sorted
+and consistent document listing, tags created before their first snapshot,
+branch-scoped index schemas,
 single branch/tag/alias reads, paginated ref listings, branches created from
 tags, optional index field
 `description`s, consistent reads through an alias, Cohere native embedding and
@@ -213,6 +215,7 @@ Optional write tools:
 - `lambdadb_delete_collection`
 - `lambdadb_create_branch`
 - `lambdadb_update_branch`
+- `lambdadb_rollback_branch`
 - `lambdadb_delete_branch`
 - `lambdadb_create_tag`
 - `lambdadb_delete_tag`
@@ -234,9 +237,10 @@ Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
 | Tool suffix (after `lambdadb_`) | Inputs and behavior |
 | --- | --- |
 | `list_branches`, `list_tags`, `list_aliases` | Optional `size` (1–100, server default 10) and `pageToken`. Return one page of refs in name order with their metadata and `indexConfigs`, plus `nextPageToken` when more follow. Available in read-only mode. |
-| `get_branch`, `get_tag`, `get_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Return one ref with its `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`. A dangling alias is returned with `indexConfigs: null`. Available in read-only mode. |
+| `get_branch`, `get_tag`, `get_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Return one ref with its `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`. A tag before its first published snapshot has `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` set to `null` and `numDocs: 0`. A dangling alias is returned with `indexConfigs: null`. Available in read-only mode. |
 | `create_branch` | `branchName`, optional `source: {kind: "branch", name, asOf?}` or `{kind: "tag", name}`. Omitted source uses main. The new branch inherits the source's `indexConfigs`. |
 | `update_branch` | `branchName` and `indexConfigs`: the branch's complete existing schema plus fields to add; an existing field may change only its `description`. Applies to that branch only; updating `main` also changes the collection's `indexConfigs`. No automatic historical backfill. |
+| `rollback_branch` | `branchName` and `tag`, an existing tag in the same collection. Restores the branch's data and index schema from the tag, discarding the branch's later writes; the branch keeps its identity. Returns `branchId` and `headSnapshot`, which is `null` when the tag has no published snapshot yet: the branch head is then empty and the branch inherits the tag's captured writes, so ordinary reads and listing return no documents until a build publishes them, while `consistentRead` includes them. Destructive and never retried: a repeated call can undo writes made after the first. |
 | `create_tag` | `tagName`, optional branch source as above or `{kind: "tag", name}`. Omitted source uses main. Pins the source's state and schema for immutable reads. |
 | `create_alias` | `aliasName`, `target: {kind: "branch" | "tag", name}`. |
 | `retarget_alias` | `aliasName`, `target` as above. Changes future alias reads, not write targets or stored data. |
@@ -252,19 +256,26 @@ source cannot have `asOf`. A branch created from a tag has `parentBranch: null`.
 Alias targets cannot be aliases or use `asOf`. Only a branch has an updatable
 schema: `update_branch` with a tag or alias name fails with HTTP 400.
 Missing/expired history and referenced-ref conflicts remain errors; the tools
-never silently switch to main or delete dependent refs. Main cannot be deleted
+never silently switch to main or delete dependent refs. A missing branch or tag
+fails a rollback with HTTP 404, and concurrent rollbacks of one branch with HTTP
+409. A rollback records no snapshot of its own time, so an `asOf` source on that
+branch fails for cutoffs between its last snapshot before the rollback and the
+first one after it. Main cannot be deleted
 as a branch. Delete or retarget referencing aliases before deleting a branch/tag.
 Deleting a tag removes its retention pin. Metadata `tags` on a collection are
 separate from version Tags.
 
-Without `asOf`, a new branch or tag captures the source's committed snapshot
-together with the writes already accepted on it; with `asOf` it captures only
-the latest retained committed snapshot at or before the cutoff. Captured pending
-writes still become visible to ordinary reads only after they are built, and
-bulk imports after indexing, so verify the data before relying on a new ref.
-A tag fixes the retrieval dataset; it does not checkpoint an
-agent's conversation, execution state, or external effects. Branch merge/reset
-is not added by these tools.
+Without `asOf`, a new branch or tag captures the source's committed snapshot, if
+any, together with the writes already accepted on it, so a source with only
+pending writes can be tagged before its first snapshot; with `asOf` it captures
+only the latest retained committed snapshot at or before the cutoff. A new
+branch's ordinary reads show captured pending writes after its build publishes
+them (`consistentRead` includes them at once); ordinary Query, Fetch and List
+reads of a tag include them. Bulk imports appear after indexing, so verify the
+data before relying on a new ref. A tag fixes the retrieval dataset; it does not
+checkpoint an agent's conversation, execution state, or external effects.
+`lambdadb_rollback_branch` resets a branch to a tag; branch merge is not added
+by these tools.
 
 Bulk inputs must fit the MCP SDK's 10 MiB stdio receive limit, including JSON-RPC
 overhead; this tool does not accept local paths or URLs. Use the LambdaDB SDK
@@ -300,12 +311,12 @@ retry controls and Qdrant compatibility are not separate MCP tools.
 
 ## API contract and tool inputs
 
-The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.13.0`, checked against
-the published package and [v0.13.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.13.0/CHANGELOG.md).
+The LambdaDB SDK is pinned to `@functional-systems/lambdadb@0.15.0`, checked against
+the published package and [v0.15.0 changelog](https://github.com/lambdadb/lambdadb-typescript-client/blob/v0.15.0/CHANGELOG.md).
 It implements the public OpenAPI contract `reference/api/openapi.json` (`info.version`
-1.3.0) in lambdadb/docs at commit `7be299af9cac4195b75feb6e38b5cd7f8989f5a0` (SHA-256
-`ec499bb6ad4fd7359c1854359e9ecfd4cd8609420f440f7dcbf75566ccda8f32`), synced from
-lambdadb/lambdadb commit `f9aa63c79cbac2ac477a76ec45e5015ce665afd1`.
+1.3.0) in lambdadb/docs at commit `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8` (SHA-256
+`269590b8addc8e25785c222938b84e737a9f9dee0a5e8b45c0dde4779bde1b6d`), synced from
+lambdadb/lambdadb commit `16c6e46854b13cebd20c501e541bb030b33ca805`.
 This dependency update applies to builds containing this change. Publishing the SDK
 alone does not update previously published or installed MCP packages.
 
@@ -328,16 +339,22 @@ alone does not update previously published or installed MCP packages.
   The update is additive: send the branch's complete existing schema plus new fields.
 - Branch, tag and alias results (get, create, retarget and list entries) carry
   `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`, which is
-  `null` for an empty branch. A dangling alias has `indexConfigs: null`. MCP passes SDK
+  `null` for an empty branch. A tag created before its first snapshot reports
+  `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` as `null` and `numDocs: 0`
+  until a build publishes its captured writes; its `snapshotId` can change as they
+  are published. A dangling alias has `indexConfigs: null`. MCP passes SDK
   results through unshaped, so these fields appear as the SDK returns them.
 - Branch, tag and alias listings return one page per call, like
   `lambdadb_list_collections`: `size` is 1–100 (server default 10) and `nextPageToken`
   is present only when more entries follow. A page is not the full list.
 - Query, Fetch, and List accept `ref: { kind: "branch" | "tag" | "alias", name: "..." }`.
-  Omitting `ref` reads from `main`. Query and Fetch accept `consistentRead` with an
+  Omitting `ref` reads from `main`. Query, Fetch and List accept `consistentRead` with an
   omitted ref, a branch ref, or an alias ref; the server resolves the alias, and an
   alias that targets a tag fails with HTTP 400. A tag ref with `consistentRead: true`
-  is rejected before any request. List does not accept `consistentRead`.
+  is rejected before any request. Listing a branch reads its published snapshot unless
+  `consistentRead` is set; listing a tag, or an alias that targets a tag, also includes
+  the tag's pending ordinary writes. A listing with large pending writes can fail with
+  HTTP 429.
 - Query may omit `query` for match-all and accepts `facets` for keyword bucket counts
   across all matches. Document `size` is 1–1000, or 0 when at least one facet is supplied.
   Up to five facet fields (including dotted paths) are allowed. Each field's options
@@ -346,8 +363,14 @@ alone does not update previously published or installed MCP packages.
   is accepted except with `size: 0`. Facet results survive inline and `docsUrl` responses.
 - Fetch accepts up to 1000 IDs; List accepts `size` from 1–1000 (server default 100).
   These expanded read and rerank limits require a supporting server deployment.
-- List also accepts `filter`, `fields`, `includeVectors`, and `partitionFilter`.
-  The SDK selects the extended POST endpoint when needed and preserves pagination tokens.
+- List also accepts `filter`, `fields`, `includeVectors`, `partitionFilter` and `sort`:
+  1–4 objects, each mapping one keyword, long, double or datetime field to lowercase
+  `"asc"` or `"desc"`, with ascending document ID as the tie-breaker. Omit `sort` for
+  ascending document ID order; an empty array is rejected before any request. The SDK
+  selects the extended POST endpoint when needed. A page token is bound to the page
+  size, `sort`, `consistentRead`, `filter`, `fields`, `partitionFilter`,
+  `includeVectors`, `ref` and the HTTP method: repeat the first page's arguments
+  exactly with `pageToken`, or the server returns HTTP 400.
 - Upsert/Delete accept an optional `branch`; omitting it writes to `main`.
   Delete requires exactly one of a nonempty `ids` array or `filter`.
 - Unknown top-level inputs and unknown ref fields are rejected, so unsupported
@@ -668,7 +691,10 @@ HTTP 201, ref/branch forwarding, invalid combinations, pagination, and `docsUrl`
 arrays/errors and local environment-file loading. Ref tests cover single branch/tag/alias
 reads with their schemas and null states, one-page ref listings with `size`/`pageToken`,
 branches created from tags, branch schema updates with their HTTP 400/404/409 errors,
-and the deprecated collection `indexConfigs` path. Facet tests validate the published
+the deprecated collection `indexConfigs` path, tags without a published snapshot, and
+branch rollback with a published or null head, its errors and the absence of retries.
+List tests cover sort and consistent read schemas and bodies across pages and the
+server's rejection of a page token with changed conditions. Facet tests validate the published
 MCP JSON Schema and actual tool-to-SDK HTTP path, including match-all, facet-only,
 document+facet, omitted/null/default bucket options, boundaries, invalid requests,
 and all 49 analyzers. Rerank tests cover JSON Schema, request preservation,
@@ -709,8 +735,9 @@ must support these features. It writes two 3 MiB documents to force actual `docs
 through the MCP tools and checks full payload integrity and download credential
 isolation. It allows up to five minutes for committed visibility, deletes its
 temporary collection in cleanup, and verifies that the collection is absent.
-The live suite uses MCP for ref creation/discovery, alias retargeting, document
-patches, bulk ingestion, ref deletion and the final collection deletion. Cleanup
+The live suite uses MCP for ref creation/discovery, alias retargeting, branch
+rollback to a tag, sorted and consistent listing, document patches, bulk
+ingestion, ref deletion and the final collection deletion. Cleanup
 falls back to the SDK if the MCP deletion did not run and verifies absence through
 the SDK. This test is separate from `npm run check`.
 

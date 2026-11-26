@@ -103,20 +103,21 @@ test("read-only is the default; write tools require explicit opt-in", async (t) 
   assert.equal(read.requests.length, 0);
   const write = await harness(t, { write: true });
   assert.match(write.client.getInstructions(), /Write tools are enabled/);
+  assert.match(write.client.getInstructions(), /alias retarget or branch rollback/);
   assert.ok(!write.client.getInstructions().includes("test-secret"));
   const enabled = (await write.client.listTools()).tools;
-  assert.equal(enabled.length, 26);
+  assert.equal(enabled.length, 27);
   const create = enabled.find((tool) => tool.name === "lambdadb_create_collection");
   assert.ok(create.inputSchema.required.includes("indexConfigs"));
   const list = enabled.find((tool) => tool.name === "lambdadb_list_docs");
   assert.ok(list.inputSchema.properties.ref);
-  assert.equal(list.inputSchema.properties.consistentRead, undefined);
+  assert.equal(list.inputSchema.properties.consistentRead.type, "boolean");
 });
 
 test("tool input schemas use object roots without Bedrock-rejected composition", async (t) => {
   const h = await harness(t, { write: true });
   const tools = (await h.client.listTools()).tools;
-  assert.equal(tools.length, 26);
+  assert.equal(tools.length, 27);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", tool.name);
     for (const keyword of ["allOf", "anyOf", "oneOf"]) {
@@ -287,7 +288,10 @@ test("document+facet metadata survives docsUrl hydration without download creden
   }
 });
 
-for (const [name, args] of [["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }]]) {
+for (const [name, args] of [
+  ["query_collection", { ...query, sort: [{ category: "ASC" }] }], ["fetch_docs", { ids: ["one"] }],
+  ["list_docs", { sort: [{ category: "desc" }] }]
+]) {
   test(`${name} forwards refs and consistentRead; only tag refs reject consistent reads locally`, async (t) => {
     const h = await harness(t, { respond: () => ({ body: { docs, total: 1, took: 1, isDocsInline: true } }) });
     for (const ref of [undefined, { kind: "branch", name: "dev" }, { kind: "tag", name: "release" }, { kind: "alias", name: "current" }]) {
@@ -341,6 +345,50 @@ test("list uses GET for simple pagination and POST for ref/filter/projection", a
   assert.equal(h.requests[1].method, "POST");
   assert.ok(h.requests[1].url.pathname.endsWith("/docs/list"));
   assert.deepEqual(h.requests[1].body, options);
+});
+
+// Public contract 9a1f563: List accepts 1 to 4 sort fields (lowercase asc/desc) and consistentRead;
+// the server binds a page token to every request condition.
+test("list sort and consistentRead reach the POST body unchanged on every page; invalid sorts fail before HTTP", async (t) => {
+  const h = await harness(t, { respond: req => req.body?.pageToken === "next" && req.body.sort?.[0]?.category !== "desc"
+    ? { status: 400, body: { message: "pageToken does not match the request conditions" } }
+    : { body: { docs, total: 1, isDocsInline: true, nextPageToken: "next" } } });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_list_docs");
+  const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
+  assert.deepEqual([tool.inputSchema.properties.sort.minItems, tool.inputSchema.properties.sort.maxItems], [1, 4]);
+  assert.match(tool.inputSchema.properties.pageToken.description, /Repeat every other argument exactly/);
+  assert.match(tool.description, /size, sort, consistentRead, filter, fields, partitionFilter, includeVectors and ref/);
+  assert.doesNotMatch(tool.description, /no consistentRead/);
+  const first = { size: 2, sort: [{ category: "desc" }, { createdAt: "asc" }, { price: "desc" }, { title: "asc" }], consistentRead: true };
+  assert.equal(validate({ collectionName: "items", ...first }).valid, true);
+  const page = data(await h.call("list_docs", { collectionName: "items", ...first }));
+  assert.equal(h.requests.at(-1).method, "POST");
+  assert.ok(h.requests.at(-1).url.pathname.endsWith("/docs/list"));
+  // The SDK sends its includeVectors default in every POST body, so each page carries the same conditions.
+  assert.deepEqual(h.requests.at(-1).body, { includeVectors: false, ...first });
+  const next = { ...first, pageToken: page.nextPageToken };
+  data(await h.call("list_docs", { collectionName: "items", ...next }));
+  assert.deepEqual(h.requests.at(-1).body, { includeVectors: false, ...next });
+  for (const options of [{ consistentRead: false }, { sort: [{ category: "asc" }] },
+    { ref: { kind: "alias", name: "current" }, consistentRead: true }, { ref: { kind: "tag", name: "release" }, sort: [{ category: "desc" }] }]) {
+    assert.equal(validate({ collectionName: "items", ...options }).valid, true, JSON.stringify(options));
+    data(await h.call("list_docs", { collectionName: "items", ...options }));
+    assert.equal(h.requests.at(-1).method, "POST");
+    assert.deepEqual(h.requests.at(-1).body, { includeVectors: false, ...options });
+  }
+  // A token repeated with a changed condition is the server's HTTP 400, surfaced once without retry.
+  const count = h.requests.length;
+  const changed = await h.call("list_docs", { collectionName: "items", ...next, sort: [{ category: "asc" }] });
+  assert.equal(changed.isError, true);
+  assert.match(changed.content[0].text, /pageToken does not match the request conditions/);
+  assert.equal(h.requests.length, count + 1);
+  for (const sort of [[], Array(5).fill({ category: "asc" }), [{}], [{ category: "asc", title: "desc" }],
+    [{ category: "ASC" }], [{ category: "ascending" }], [{ category: null }], null, { category: "asc" }]) {
+    const input = { collectionName: "items", sort };
+    assert.equal(validate(input).valid, false, JSON.stringify(sort));
+    assert.equal((await h.call("list_docs", input)).isError, true, JSON.stringify(sort));
+  }
+  assert.equal(h.requests.length, count + 1, "Invalid sorts must not reach HTTP");
 });
 
 test("upsert and both delete forms preserve branch scope", async (t) => {
@@ -402,7 +450,8 @@ test("invalid and unsupported inputs fail before any HTTP request", async (t) =>
     ["upsert_docs", { docs: [], branch: "dev" }],
     ["upsert_docs", { docs: [{ id: "one" }], branch: "x" }],
     ["upsert_docs", { docs: [{ id: "one" }], ref: { kind: "tag", name: "release" } }],
-    ["list_docs", { consistentRead: true }],
+    ["list_docs", { consistentRead: true, ref: { kind: "tag", name: "release" } }],
+    ["list_docs", { sort: [] }],
     ["list_docs", { ref: { kind: "branch", name: "dev", asOf: 1 } }],
     ["fetch_docs", { ids: ["one"], fields: {} }],
     ["query_collection", { ...query, fields: { include: [] } }],
@@ -946,6 +995,68 @@ test("update_branch sends indexConfigs only to the branch route and maps service
   const rejected = await read.call("update_branch", { collectionName: "items", branchName: "candidate", indexConfigs });
   assert.match(rejected.content[0].text, /not found/i);
   assert.equal(read.requests.length, 0);
+});
+
+// Public contract 9a1f563: rollback returns the new head, or headSnapshot null for a tag without a published snapshot.
+test("rollback_branch posts the tag once, reports a null head and never retries", async t => {
+  const failures = { ghost: [404, "Tag ghost not found"], busy: [409, "Concurrent rollback replaced the write stream"],
+    flaky: [503, "Service unavailable"], broken: [500, "Internal server error"] };
+  const h = await harness(t, { write: true, respond: req => {
+    const failure = failures[req.body.tag];
+    if (failure) return { status: failure[0], body: { message: failure[1] } };
+    return { body: { branchId: "branch-candidate", headSnapshot: req.body.tag === "pending"
+      ? null : { snapshotId: "rollback-snapshot", snapshotCommittedAt: timestamp } } };
+  } });
+  const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_rollback_branch");
+  assert.deepEqual(tool.annotations, { destructiveHint: true, openWorldHint: false });
+  assert.deepEqual(tool.inputSchema.required.sort(), ["branchName", "collectionName", "tag"]);
+  assert.match(tool.description, /confirm with the user first/);
+  assert.match(tool.description, /headSnapshot is null/);
+  assert.match(tool.description, /Never repeat a call/);
+  const published = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "release" });
+  assert.ok(published.content[0].text.startsWith("Branch candidate rolled back to tag release; headSnapshot is its new head.\n\n"));
+  assert.deepEqual(data(published), { branchId: "branch-candidate",
+    headSnapshot: { snapshotId: "rollback-snapshot", snapshotCommittedAt: new Date(timestamp).toISOString() } });
+  assert.equal(h.requests.at(-1).method, "POST");
+  assert.equal(h.requests.at(-1).url.pathname, "/projects/test/collections/items/branches/candidate/rollback");
+  assert.deepEqual(h.requests.at(-1).body, { tag: "release" });
+  const pending = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "pending" });
+  assert.deepEqual(data(pending), { branchId: "branch-candidate", headSnapshot: null });
+  assert.match(pending.content[0].text, /^Branch candidate rolled back to tag pending, which has no published snapshot yet: .* consistentRead on branch candidate\.\n\n/);
+  for (const [tag, [, message]] of Object.entries(failures)) {
+    const count = h.requests.length;
+    const result = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag });
+    assert.equal(result.isError, true, tag);
+    assert.ok(result.content[0].text.includes(message), result.content[0].text);
+    assert.equal(h.requests.length, count + 1, `A failed rollback (${tag}) must not be retried`);
+  }
+  const count = h.requests.length;
+  for (const args of [{}, { branchName: "candidate" }, { tag: "release" }, { branchName: "candidate", tag: "x" },
+    { branchName: "candidate", tag: { kind: "tag", name: "release" } }, { branchName: "../main", tag: "release" },
+    { branchName: "candidate", tag: "release", asOf: timestamp }]) {
+    assert.equal((await h.call("rollback_branch", { collectionName: "items", ...args })).isError, true, JSON.stringify(args));
+  }
+  assert.equal(h.requests.length, count);
+  const read = await harness(t);
+  const rejected = await read.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "release" });
+  assert.match(rejected.content[0].text, /not found/i);
+  assert.equal(read.requests.length, 0);
+});
+
+test("tags without a published snapshot keep explicit nulls in create, get and list results", async t => {
+  const unpublished = { ...tagFixture, snapshotId: null, snapshotCommittedAt: null, dataUpdatedAt: null, numDocs: 0 };
+  const h = await harness(t, { write: true, respond: req => ({ status: req.method === "POST" ? 201 : 200,
+    body: req.url.pathname.endsWith("/tags") && req.method === "GET" ? { tags: [unpublished, tagFixture] } : { tag: unpublished } }) });
+  const expected = { ...unpublished, createdAt: new Date(timestamp).toISOString() };
+  assert.deepEqual(data(await h.call("create_tag", { collectionName: "items", tagName: "release", source: { kind: "branch", name: "candidate" } })).tag, expected);
+  assert.deepEqual(data(await h.call("get_tag", { collectionName: "items", tagName: "release" })).tag, expected);
+  const listed = data(await h.call("list_tags", { collectionName: "items" })).tags;
+  assert.deepEqual(listed[0], expected);
+  assert.equal(listed[1].snapshotCommittedAt, new Date(timestamp).toISOString());
+  const tools = (await h.client.listTools()).tools;
+  for (const name of ["lambdadb_create_tag", "lambdadb_get_tag", "lambdadb_list_tags"]) {
+    assert.match(tools.find(tool => tool.name === name).description, /snapshotId, snapshotCommittedAt and dataUpdatedAt/, name);
+  }
 });
 
 test("invalid lifecycle selectors fail before HTTP and cannot fall back to main", async t => {
