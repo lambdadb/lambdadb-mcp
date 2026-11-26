@@ -39,7 +39,7 @@ npm `latest` resolves to the current stable release; `dev` advances separately.
 Use an exact published version for reproducibility or the stable channel for
 initial setup. See [release status and policy](RELEASING.md).
 
-The current source pins LambdaDB SDK `0.15.0`: branch rollback to a tag, sorted
+MCP 0.7.0 pins LambdaDB SDK `0.15.0`: branch rollback to a tag, sorted
 and consistent document listing, tags created before their first snapshot,
 branch-scoped index schemas,
 single branch/tag/alias reads, paginated ref listings, branches created from
@@ -65,7 +65,7 @@ those features to this stdio-only server. See the
 ```sh
 npx --yes @functional-systems/lambdadb-mcp
 # Pin the stable release:
-npx --yes @functional-systems/lambdadb-mcp@0.6.0
+npx --yes @functional-systems/lambdadb-mcp@0.7.0
 # Or install globally:
 npm install -g @functional-systems/lambdadb-mcp
 lambdadb-mcp
