@@ -177,15 +177,15 @@ export function registerVersioningWriteTools(server: McpServer, config: ToolCont
       inputSchema: z.strictObject({
         collectionName: nameSchema,
         branchName: existingName("branch"),
-        tag: existingName("tag")
+        tagName: existingName("tag")
       })
     },
     // The SDK sends rollback without automatic retries.
-    ({ collectionName, branchName, tag }) => withLambdaDB(config, async client => {
-      const result = await client.collection(collectionName).branches.rollback(branchName, { tag });
+    ({ collectionName, branchName, tagName }) => withLambdaDB(config, async client => {
+      const result = await client.collection(collectionName).branches.rollback(branchName, { tag: tagName });
       return jsonResult(result.headSnapshot === null
-        ? `Branch ${branchName} rolled back to tag ${tag}, which has no published snapshot yet: the branch head is empty until a build publishes the tag's captured writes. Read them now with consistentRead on branch ${branchName}.`
-        : `Branch ${branchName} rolled back to tag ${tag}; headSnapshot is its new head.`, result);
+        ? `Branch ${branchName} rolled back to tag ${tagName}, which has no published snapshot yet: the branch head is empty until a build publishes the tag's captured writes. Read them now with consistentRead on branch ${branchName}.`
+        : `Branch ${branchName} rolled back to tag ${tagName}; headSnapshot is its new head.`, result);
     })
   );
 

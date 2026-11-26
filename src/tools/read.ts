@@ -214,12 +214,14 @@ export function registerReadTools(server: McpServer, config: ToolContext): void 
     ({
       collectionName, size, pageToken, ref, consistentRead, sort, filter, fields, includeVectors, partitionFilter
     }) => withLambdaDB(config, async client => {
-      // The SDK validates read options at request time.
+      // The SDK validates read options at request time. It sends POST whenever consistentRead is
+      // defined, and the server binds a page token to the HTTP method, so false (the default)
+      // stays off the wire: pages that send false and pages that omit it then match.
       const input = {
         size,
         pageToken,
         ref,
-        consistentRead,
+        consistentRead: consistentRead || undefined,
         sort,
         filter,
         fields,

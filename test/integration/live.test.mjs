@@ -295,7 +295,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     assert.equal(retargeted.alias.targetName, "candidate");
     assert.equal((await scoped("fetch_docs", { ids: ["bulk-only"], ref: { kind: "alias", name: "current" } })).docs.length, 1);
     // Rollback restores the tag's data and schema; release was created from a published snapshot.
-    const rolledBack = await scoped("rollback_branch", { branchName: "candidate", tag: "release" });
+    const rolledBack = await scoped("rollback_branch", { branchName: "candidate", tagName: "release" });
     assert.equal(typeof rolledBack.branchId, "string");
     assert.equal(typeof rolledBack.headSnapshot?.snapshotId, "string");
     await eventually(async () => {

@@ -7,7 +7,7 @@
   `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8` (SHA-256
   `269590b8addc8e25785c222938b84e737a9f9dee0a5e8b45c0dde4779bde1b6d`), synced
   from lambdadb/lambdadb commit `16c6e46854b13cebd20c501e541bb030b33ca805`.
-- Add the write tool `lambdadb_rollback_branch` (`branchName`, `tag`), which
+- Add the write tool `lambdadb_rollback_branch` (`branchName`, `tagName`), which
   restores a branch's data and index schema from a tag in the same collection
   and returns `branchId` and `headSnapshot`. It is annotated destructive, asks
   for user confirmation and is never retried: a repeated rollback can undo
@@ -18,7 +18,9 @@
 - `lambdadb_list_docs` accepts `sort` (1–4 objects, each mapping one field to
   `"asc"` or `"desc"`; an empty array fails before any request) and
   `consistentRead`, with the same ref rule as Query and Fetch: a tag ref
-  rejects `true` before any request. Its description states that a branch
+  rejects `true` before any request. `consistentRead: false` is sent as if
+  omitted, so a page that sends it and a page that omits it use the same HTTP
+  method and page-token conditions. Its description states that a branch
   listing reads the published snapshot unless `consistentRead` is set, that a
   tag listing includes the tag's pending writes, that a large pending payload
   can return HTTP 429, and that a page token must be repeated with identical

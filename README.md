@@ -240,7 +240,7 @@ Names use the existing 3–52 character letters/digits/underscore/hyphen rule.
 | `get_branch`, `get_tag`, `get_alias` | `branchName`, `tagName`, or `aliasName`, respectively. Return one ref with its `indexConfigs`; branches and tags also carry `numDocs` and `dataUpdatedAt`. A tag before its first published snapshot has `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt` set to `null` and `numDocs: 0`. A dangling alias is returned with `indexConfigs: null`. Available in read-only mode. |
 | `create_branch` | `branchName`, optional `source: {kind: "branch", name, asOf?}` or `{kind: "tag", name}`. Omitted source uses main. The new branch inherits the source's `indexConfigs`. |
 | `update_branch` | `branchName` and `indexConfigs`: the branch's complete existing schema plus fields to add; an existing field may change only its `description`. Applies to that branch only; updating `main` also changes the collection's `indexConfigs`. No automatic historical backfill. |
-| `rollback_branch` | `branchName` and `tag`, an existing tag in the same collection. Restores the branch's data and index schema from the tag, discarding the branch's later writes; the branch keeps its identity. Returns `branchId` and `headSnapshot`, which is `null` when the tag has no published snapshot yet: the branch head is then empty and the branch inherits the tag's captured writes, so ordinary reads and listing return no documents until a build publishes them, while `consistentRead` includes them. Destructive and never retried: a repeated call can undo writes made after the first. |
+| `rollback_branch` | `branchName` and `tagName`, an existing tag in the same collection. Restores the branch's data and index schema from the tag, discarding the branch's later writes; the branch keeps its identity. Returns `branchId` and `headSnapshot`, which is `null` when the tag has no published snapshot yet: the branch head is then empty and the branch inherits the tag's captured writes, so ordinary reads and listing return no documents until a build publishes them, while `consistentRead` includes them. Destructive and never retried: a repeated call can undo writes made after the first. |
 | `create_tag` | `tagName`, optional branch source as above or `{kind: "tag", name}`. Omitted source uses main. Pins the source's state and schema for immutable reads. |
 | `create_alias` | `aliasName`, `target: {kind: "branch" | "tag", name}`. |
 | `retarget_alias` | `aliasName`, `target` as above. Changes future alias reads, not write targets or stored data. |
@@ -370,7 +370,8 @@ alone does not update previously published or installed MCP packages.
   selects the extended POST endpoint when needed. A page token is bound to the page
   size, `sort`, `consistentRead`, `filter`, `fields`, `partitionFilter`,
   `includeVectors`, `ref` and the HTTP method: repeat the first page's arguments
-  exactly with `pageToken`, or the server returns HTTP 400.
+  exactly with `pageToken`, or the server returns HTTP 400. MCP sends
+  `consistentRead: false` as if it were omitted, so the two select the same method.
 - Upsert/Delete accept an optional `branch`; omitting it writes to `main`.
   Delete requires exactly one of a nonempty `ids` array or `filter`.
 - Unknown top-level inputs and unknown ref fields are rejected, so unsupported

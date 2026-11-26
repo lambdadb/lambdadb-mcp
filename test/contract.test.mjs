@@ -299,7 +299,8 @@ for (const [name, args] of [
       const consistentRead = ref?.kind !== "tag";
       data(await h.call(name, { collectionName: "items", ...args, ...(ref ? { ref } : {}), consistentRead }));
       assert.deepEqual(h.requests.at(-1).body.ref, ref);
-      assert.equal(h.requests.at(-1).body.consistentRead, consistentRead);
+      // List leaves false off the wire (see the list consistentRead false test).
+      assert.equal(h.requests.at(-1).body.consistentRead, name === "list_docs" && !consistentRead ? undefined : consistentRead);
       if (args.sort) assert.deepEqual(h.requests.at(-1).body.sort, args.sort);
     }
     assert.equal(h.requests.length, 4);
@@ -347,6 +348,27 @@ test("list uses GET for simple pagination and POST for ref/filter/projection", a
   assert.deepEqual(h.requests[1].body, options);
 });
 
+test("list sends consistentRead false like an omitted one, so pages keep one HTTP method", async (t) => {
+  const h = await harness(t, { respond: () => ({ body: { docs, total: 1, isDocsInline: true, nextPageToken: "next" } }) });
+  for (const pageToken of [undefined, "next"]) {
+    const base = { collectionName: "items", size: 1, ...(pageToken ? { pageToken } : {}) };
+    data(await h.call("list_docs", base));
+    data(await h.call("list_docs", { ...base, consistentRead: false }));
+    const [omitted, sentFalse] = h.requests.slice(-2);
+    assert.equal(omitted.method, "GET");
+    assert.equal(sentFalse.method, omitted.method);
+    assert.equal(sentFalse.url.href, omitted.url.href);
+    assert.deepEqual(sentFalse.body, omitted.body);
+  }
+  // With another extended option, false stays out of the POST body as well; true is sent.
+  data(await h.call("list_docs", { collectionName: "items", sort: [{ category: "asc" }], consistentRead: false }));
+  assert.equal(h.requests.at(-1).method, "POST");
+  assert.equal(Object.hasOwn(h.requests.at(-1).body, "consistentRead"), false);
+  data(await h.call("list_docs", { collectionName: "items", consistentRead: true }));
+  assert.equal(h.requests.at(-1).method, "POST");
+  assert.equal(h.requests.at(-1).body.consistentRead, true);
+});
+
 // Public contract 9a1f563: List accepts 1 to 4 sort fields (lowercase asc/desc) and consistentRead;
 // the server binds a page token to every request condition.
 test("list sort and consistentRead reach the POST body unchanged on every page; invalid sorts fail before HTTP", async (t) => {
@@ -369,7 +391,7 @@ test("list sort and consistentRead reach the POST body unchanged on every page; 
   const next = { ...first, pageToken: page.nextPageToken };
   data(await h.call("list_docs", { collectionName: "items", ...next }));
   assert.deepEqual(h.requests.at(-1).body, { includeVectors: false, ...next });
-  for (const options of [{ consistentRead: false }, { sort: [{ category: "asc" }] },
+  for (const options of [{ consistentRead: true }, { sort: [{ category: "asc" }] },
     { ref: { kind: "alias", name: "current" }, consistentRead: true }, { ref: { kind: "tag", name: "release" }, sort: [{ category: "desc" }] }]) {
     assert.equal(validate({ collectionName: "items", ...options }).valid, true, JSON.stringify(options));
     data(await h.call("list_docs", { collectionName: "items", ...options }));
@@ -1009,36 +1031,37 @@ test("rollback_branch posts the tag once, reports a null head and never retries"
   } });
   const tool = (await h.client.listTools()).tools.find(tool => tool.name === "lambdadb_rollback_branch");
   assert.deepEqual(tool.annotations, { destructiveHint: true, openWorldHint: false });
-  assert.deepEqual(tool.inputSchema.required.sort(), ["branchName", "collectionName", "tag"]);
+  assert.deepEqual(tool.inputSchema.required.sort(), ["branchName", "collectionName", "tagName"]);
   assert.match(tool.description, /confirm with the user first/);
   assert.match(tool.description, /headSnapshot is null/);
   assert.match(tool.description, /Never repeat a call/);
-  const published = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "release" });
+  const published = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tagName: "release" });
   assert.ok(published.content[0].text.startsWith("Branch candidate rolled back to tag release; headSnapshot is its new head.\n\n"));
   assert.deepEqual(data(published), { branchId: "branch-candidate",
     headSnapshot: { snapshotId: "rollback-snapshot", snapshotCommittedAt: new Date(timestamp).toISOString() } });
   assert.equal(h.requests.at(-1).method, "POST");
   assert.equal(h.requests.at(-1).url.pathname, "/projects/test/collections/items/branches/candidate/rollback");
   assert.deepEqual(h.requests.at(-1).body, { tag: "release" });
-  const pending = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "pending" });
+  const pending = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tagName: "pending" });
   assert.deepEqual(data(pending), { branchId: "branch-candidate", headSnapshot: null });
   assert.match(pending.content[0].text, /^Branch candidate rolled back to tag pending, which has no published snapshot yet: .* consistentRead on branch candidate\.\n\n/);
   for (const [tag, [, message]] of Object.entries(failures)) {
     const count = h.requests.length;
-    const result = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag });
+    const result = await h.call("rollback_branch", { collectionName: "items", branchName: "candidate", tagName: tag });
     assert.equal(result.isError, true, tag);
     assert.ok(result.content[0].text.includes(message), result.content[0].text);
     assert.equal(h.requests.length, count + 1, `A failed rollback (${tag}) must not be retried`);
   }
   const count = h.requests.length;
-  for (const args of [{}, { branchName: "candidate" }, { tag: "release" }, { branchName: "candidate", tag: "x" },
-    { branchName: "candidate", tag: { kind: "tag", name: "release" } }, { branchName: "../main", tag: "release" },
-    { branchName: "candidate", tag: "release", asOf: timestamp }]) {
+  // The SDK body field tag is not a tool input.
+  for (const args of [{}, { branchName: "candidate" }, { tagName: "release" }, { branchName: "candidate", tagName: "x" },
+    { branchName: "candidate", tagName: { kind: "tag", name: "release" } }, { branchName: "../main", tagName: "release" },
+    { branchName: "candidate", tagName: "release", asOf: timestamp }, { branchName: "candidate", tag: "release" }]) {
     assert.equal((await h.call("rollback_branch", { collectionName: "items", ...args })).isError, true, JSON.stringify(args));
   }
   assert.equal(h.requests.length, count);
   const read = await harness(t);
-  const rejected = await read.call("rollback_branch", { collectionName: "items", branchName: "candidate", tag: "release" });
+  const rejected = await read.call("rollback_branch", { collectionName: "items", branchName: "candidate", tagName: "release" });
   assert.match(rejected.content[0].text, /not found/i);
   assert.equal(read.requests.length, 0);
 });
