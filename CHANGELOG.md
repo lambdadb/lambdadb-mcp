@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.0] - 2026-11-26
+
 - Pin the LambdaDB SDK to 0.15.0, aligned with the public OpenAPI contract
   `reference/api/openapi.json` (`info.version` 1.3.0) in lambdadb/docs at commit
   `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8` (SHA-256
