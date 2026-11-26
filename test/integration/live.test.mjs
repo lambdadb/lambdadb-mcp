@@ -100,7 +100,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
   try {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
-    assert.equal((await client.listTools()).tools.length, 26);
+    assert.equal((await client.listTools()).tools.length, 27);
     await call("list_collections", { size: 1 });
     console.info("[live] Project List and write opt-in: PASS");
     const made = await scoped("create_collection", {
@@ -198,6 +198,20 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     await scoped("list_docs", { fields, filter: { queryString: { query: "marker:offload" } } });
     await scoped("query_collection", { ...query, fields, sort: [{ marker: "ASC" }] });
     console.info("[live] Pagination, queryString filter, uppercase sort: PASS");
+    // Contract 9a1f563: sorted, consistent listing; a page token is bound to the request conditions.
+    const sortedList = { size: 1, fields, sort: [{ marker: "asc" }], consistentRead: true };
+    const sortedFirst = await scoped("list_docs", sortedList);
+    assert.equal(trace[0].method, "POST");
+    assert.ok(sortedFirst.nextPageToken);
+    const sortedSecond = await scoped("list_docs", { ...sortedList, pageToken: sortedFirst.nextPageToken });
+    // Equal sort values fall back to ascending document ID order.
+    assert.deepEqual([...sortedFirst.docs, ...sortedSecond.docs].map(({ doc }) => doc.id), ids);
+    trace = [];
+    const changedToken = await client.callTool({ name: "lambdadb_list_docs", arguments: {
+      collectionName, ...sortedList, sort: [{ marker: "desc" }], pageToken: sortedFirst.nextPageToken } });
+    assert.equal(changedToken.isError, true, "A page token repeated with another sort must fail");
+    assert.ok(trace.some(entry => entry.status === 400));
+    console.info("[live] Sorted consistent List pages and page-token condition binding: PASS");
 
     await scoped("create_branch", { branchName: "candidate" });
     await scoped("create_tag", { tagName: "release" });
@@ -254,6 +268,10 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
       const result = await scoped("fetch_docs", { ids: ["branch-only"], ref: { kind: "branch", name: "candidate" }, consistentRead: true });
       return result.docs.length === 1;
     }, "branch write visibility", 90_000);
+    await eventually(async () => {
+      const result = await scoped("list_docs", { size: 10, fields, ref: { kind: "branch", name: "candidate" }, consistentRead: true });
+      return result.docs.some(({ doc }) => doc.id === "branch-only");
+    }, "branch pending-write List with consistentRead", 90_000);
     await scoped("update_docs", { branch: "candidate", docs: [{ id: "branch-only", title: "Updated memory" }] });
     await eventually(async () => {
       const result = await scoped("fetch_docs", { ids: ["branch-only"], ref: { kind: "branch", name: "candidate" }, consistentRead: true });
@@ -276,6 +294,15 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     const retargeted = await scoped("retarget_alias", { aliasName: "current", target: { kind: "branch", name: "candidate" } });
     assert.equal(retargeted.alias.targetName, "candidate");
     assert.equal((await scoped("fetch_docs", { ids: ["bulk-only"], ref: { kind: "alias", name: "current" } })).docs.length, 1);
+    // Rollback restores the tag's data and schema; release was created from a published snapshot.
+    const rolledBack = await scoped("rollback_branch", { branchName: "candidate", tagName: "release" });
+    assert.equal(typeof rolledBack.branchId, "string");
+    assert.equal(typeof rolledBack.headSnapshot?.snapshotId, "string");
+    await eventually(async () => {
+      const result = await scoped("fetch_docs", { ids: [...ids, "bulk-only"], fields, ref: { kind: "branch", name: "candidate" }, consistentRead: true });
+      return result.docs.map(({ doc }) => doc.id).sort().join() === ids.join();
+    }, "branch rollback to a tag", 90_000);
+    assert.deepEqual((await scoped("get_branch", { branchName: "candidate" })).branch.indexConfigs, release.indexConfigs);
     await scoped("delete_alias", { aliasName: "current" });
     await scoped("delete_tag", { tagName: "release" });
     await scoped("delete_branch", { branchName: "candidate" });
@@ -285,7 +312,7 @@ test("live MCP analyzers, facets, metadata, writes, refs, docsUrl arrays, and cl
     const configured = await scoped("update_collection", { description: "Updated MCP smoke", tags: {} });
     assert.equal(configured.collection.description, "Updated MCP smoke");
     assert.deepEqual(configured.collection.tags ?? {}, {});
-    console.info("[live] Ref lifecycle, partial update, bulk ingestion and collection settings: PASS");
+    console.info("[live] Ref lifecycle, branch rollback, partial update, bulk ingestion and collection settings: PASS");
     await scoped("delete_docs", { branch: "main", filter: { queryString: { query: "marker:offload" } } });
     assert.ok(trace.some((entry) => entry.status === 202));
     console.info("[live] Branch write isolation, delete by IDs, delete by filter HTTP 202: PASS");

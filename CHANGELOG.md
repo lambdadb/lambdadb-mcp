@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Pin the LambdaDB SDK to 0.15.0, aligned with the public OpenAPI contract
+  `reference/api/openapi.json` (`info.version` 1.3.0) in lambdadb/docs at commit
+  `9a1f563b9b53bc29e5278105f8fc8c25a17e0cb8` (SHA-256
+  `269590b8addc8e25785c222938b84e737a9f9dee0a5e8b45c0dde4779bde1b6d`), synced
+  from lambdadb/lambdadb commit `16c6e46854b13cebd20c501e541bb030b33ca805`.
+- Add the write tool `lambdadb_rollback_branch` (`branchName`, `tagName`), which
+  restores a branch's data and index schema from a tag in the same collection
+  and returns `branchId` and `headSnapshot`. It is annotated destructive, asks
+  for user confirmation and is never retried: a repeated rollback can undo
+  writes made after the first. When the tag has no published snapshot yet,
+  `headSnapshot` is `null`; the result text then says that the branch head is
+  empty and that `consistentRead` reads the inherited writes until a build
+  publishes them.
+- `lambdadb_list_docs` accepts `sort` (1–4 objects, each mapping one field to
+  `"asc"` or `"desc"`; an empty array fails before any request) and
+  `consistentRead`, with the same ref rule as Query and Fetch: a tag ref
+  rejects `true` before any request. `consistentRead: false` is sent as if
+  omitted, so a page that sends it and a page that omits it use the same HTTP
+  method and page-token conditions. Its description states that a branch
+  listing reads the published snapshot unless `consistentRead` is set, that a
+  tag listing includes the tag's pending writes, that a large pending payload
+  can return HTTP 429, and that a page token must be repeated with identical
+  arguments, since the server returns HTTP 400 when a request condition changes.
+- Tag results can carry `snapshotId`, `snapshotCommittedAt` and `dataUpdatedAt`
+  as `null` (with `numDocs: 0`) for a tag created before its first snapshot.
+  `lambdadb_create_tag`, `lambdadb_get_tag` and `lambdadb_list_tags` describe
+  this state, and tag creation no longer claims that a source without a
+  snapshot fails: only a source with neither a snapshot nor pending writes does.
+- Server instructions name branch rollback among the operations to confirm
+  with the user. README no longer says that List lacks `consistentRead`.
+- The live suite rolls a branch back to a tag, lists sorted pages with
+  `consistentRead`, lists a branch's pending write with `consistentRead`, and
+  checks that a page token repeated with another sort fails.
+
 ## [0.6.0] - 2026-11-18
 
 - Pin the LambdaDB SDK to 0.13.0, aligned with the public OpenAPI contract

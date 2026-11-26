@@ -46,7 +46,7 @@ export function registerVersioningReadTools(server: McpServer, config: ToolConte
     "lambdadb_list_tags",
     {
       title: "List Tags",
-      description: "List one page of immutable tags in a collection in name order, each with its pinned snapshot, numDocs, dataUpdatedAt and indexConfigs. Follow nextPageToken when more are needed; a page is not the full list. Use the returned names as ref {kind: 'tag'} for stable reads; tags are never write targets.",
+      description: "List one page of immutable tags in a collection in name order, each with its current published snapshot, numDocs, dataUpdatedAt and indexConfigs. A tag created before its first snapshot has snapshotId, snapshotCommittedAt and dataUpdatedAt null and numDocs 0 until a build publishes its captured writes. Follow nextPageToken when more are needed; a page is not the full list. Use the returned names as ref {kind: 'tag'} for stable reads; tags are never write targets.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
@@ -97,7 +97,7 @@ export function registerVersioningReadTools(server: McpServer, config: ToolConte
     "lambdadb_get_tag",
     {
       title: "Get Tag",
-      description: "Inspect one immutable tag: the snapshot it pins with that snapshot's indexConfigs, numDocs and dataUpdatedAt, none of which change after creation. A name that is not a tag is not found.",
+      description: "Inspect one immutable tag: its fixed indexConfigs and the snapshot, numDocs and dataUpdatedAt of its current published snapshot. Before the first publication snapshotId, snapshotCommittedAt and dataUpdatedAt are null and numDocs is 0; the snapshot ID can change as the tag's captured writes are published, while the tag's data stays fixed. Reads of a tag include its captured writes. A name that is not a tag is not found.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
@@ -169,10 +169,31 @@ export function registerVersioningWriteTools(server: McpServer, config: ToolCont
   );
 
   server.registerTool(
+    "lambdadb_rollback_branch",
+    {
+      title: "Roll Back Branch",
+      description: "Restore a branch's data and index schema from a tag in the same collection, replacing the branch's current state, including writes made since the tag; confirm with the user first. The branch keeps its name and identity, and aliases that target it serve the restored state. When the tag has a published snapshot, headSnapshot in the result is the branch's new head. When it has none yet, headSnapshot is null: the branch head is empty and the branch inherits the tag's captured writes, so ordinary reads and lambdadb_list_docs return no documents until a build publishes them, while consistentRead on the branch includes them. Never repeat a call on your own: a second rollback can undo writes made after the first. After an uncertain failure such as a timeout, inspect the branch with lambdadb_get_branch first. asOf sources on this branch fail for cutoffs between its last snapshot before the rollback and the first one after it.",
+      annotations: { destructiveHint: true, openWorldHint: false },
+      inputSchema: z.strictObject({
+        collectionName: nameSchema,
+        branchName: existingName("branch"),
+        tagName: existingName("tag")
+      })
+    },
+    // The SDK sends rollback without automatic retries.
+    ({ collectionName, branchName, tagName }) => withLambdaDB(config, async client => {
+      const result = await client.collection(collectionName).branches.rollback(branchName, { tag: tagName });
+      return jsonResult(result.headSnapshot === null
+        ? `Branch ${branchName} rolled back to tag ${tagName}, which has no published snapshot yet: the branch head is empty until a build publishes the tag's captured writes. Read them now with consistentRead on branch ${branchName}.`
+        : `Branch ${branchName} rolled back to tag ${tagName}; headSnapshot is its new head.`, result);
+    })
+  );
+
+  server.registerTool(
     "lambdadb_create_tag",
     {
       title: "Create Tag",
-      description: "Pin a branch's or tag's state as an immutable read-only tag with its indexConfigs. Omitted source uses main; source may be a branch (optionally asOf) or tag, never an alias. Without asOf the tag fixes the source snapshot plus the writes already accepted on it; asOf pins a retained committed snapshot only. Empty or unavailable snapshots fail. Route readers to the tag with lambdadb_create_alias or lambdadb_retarget_alias.",
+      description: "Pin a branch's or tag's state as an immutable read-only tag with its indexConfigs. Omitted source uses main; source may be a branch (optionally asOf) or tag, never an alias. Without asOf the tag fixes the source snapshot, if any, plus the writes already accepted on it, so a source with only pending writes can be tagged before its first snapshot (snapshotId, snapshotCommittedAt and dataUpdatedAt are then null); asOf pins a retained committed snapshot only. A source with neither a snapshot nor pending writes, or unavailable asOf history, fails. Route readers to the tag with lambdadb_create_alias or lambdadb_retarget_alias.",
       annotations: { destructiveHint: false, openWorldHint: false },
       inputSchema: z.strictObject({
         collectionName: nameSchema,
